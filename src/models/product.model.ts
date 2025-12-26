@@ -20,7 +20,12 @@ const ProductSchema: Schema = new Schema(
     description: { type: String, required: true },
     price: { type: Number, required: true, min: 0 },
     images: [{ type: String }],
-    stock: { type: Number, required: true, min: 0, default: 0 },
+    stock: {
+    type: Number,
+    required: true,
+    min: [0, 'Stock cannot be negative'],
+    default: 0,
+    },
     category: { type: Schema.Types.ObjectId, ref: 'Category', required: true },
     brand: { type: Schema.Types.ObjectId, ref: 'Brand', required: true },
   },

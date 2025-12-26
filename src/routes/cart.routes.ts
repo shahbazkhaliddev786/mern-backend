@@ -1,5 +1,3 @@
-// src/routes/cart.routes.ts
-
 import { Router } from 'express';
 import {
   getUserCart,
@@ -9,15 +7,20 @@ import {
   clearUserCart,
 } from '../controllers/index.js';
 
+import { 
+  addToCartValidation,
+  updateCartItemValidation,
+  removeFromCartValidation
+ } from '../validations/index.js';
+
+ import { validate } from '../middlewares/validation.middleware.js';
+
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 
 export const cartRouter = Router();
 
-// TODO: Protect routes with authMiddleware when to test all edge cases
-// Validations as well
-
 cartRouter.get('/', authMiddleware, getUserCart);                    
-cartRouter.post('/', authMiddleware, addItemToCart);                 
-cartRouter.patch('/items/:productId', authMiddleware, updateItemInCart); 
-cartRouter.delete('/items/:productId', authMiddleware, removeItemFromCart); 
+cartRouter.post('/', authMiddleware, addToCartValidation, validate, addItemToCart);                 
+cartRouter.patch('/items/:productId', authMiddleware, updateCartItemValidation, validate, updateItemInCart); 
+cartRouter.delete('/items/:productId', authMiddleware, removeFromCartValidation, validate, removeItemFromCart); 
 cartRouter.delete('/', authMiddleware, clearUserCart);           

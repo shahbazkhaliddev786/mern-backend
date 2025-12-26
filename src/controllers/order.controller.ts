@@ -9,6 +9,11 @@ import {
   getOrderById,
 } from '../services/index.js';
 
+import type {   
+  UpdateOrderBody,
+  OrderParams
+} from '../types/index.js';
+
 export const createOrder = asyncHandler(async (req: Request, res: Response) => {
   const { sessionId, url } = await createCheckoutSession(req);
 
@@ -18,7 +23,7 @@ export const createOrder = asyncHandler(async (req: Request, res: Response) => {
   });
 });
 
-export const updateOrder = asyncHandler(async (req: Request, res: Response) => {
+export const updateOrder = asyncHandler(async (req: Request<OrderParams, {}, UpdateOrderBody>, res: Response) => {
   const { orderId } = req.params;
   const { status } = req.body;
 
@@ -31,7 +36,7 @@ export const updateOrder = asyncHandler(async (req: Request, res: Response) => {
   return apiResponse(res, 200, 'success', 'Order status updated', order);
 });
 
-export const deleteOrderCtrl = asyncHandler(async (req: Request, res: Response) => {
+export const deleteOrderCtrl = asyncHandler(async (req: Request<OrderParams, {}, {}>, res: Response) => {
   const { orderId } = req.params;
 
     if (!orderId) { 
@@ -50,7 +55,7 @@ export const getOrders = asyncHandler(async (req: Request, res: Response) => {
   return apiResponse(res, 200, 'success', 'Orders retrieved', orders);
 });
 
-export const getOrder = asyncHandler(async (req: Request, res: Response) => {
+export const getOrder = asyncHandler(async (req: Request<OrderParams, {}, {}>, res: Response) => {
   const { orderId } = req.params;
 
     if (!orderId) {

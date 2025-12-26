@@ -16,6 +16,7 @@ import {
 } from '../validations/product.validations.js';
 
 import { validate } from '../middlewares/validation.middleware.js';
+import { requireRole } from '../middlewares/admin.js';
 
 export const productRouter = Router();
 
@@ -26,6 +27,7 @@ productRouter.post(
   uploadMultipleFiles,
   createProductValidation,
   validate,
+  requireRole(['admin']),
   createProduct
 );
 
@@ -41,6 +43,7 @@ productRouter
     productIdParamValidation,
     updateProductValidation,
     validate,
+    requireRole(['admin']),
     updateProduct
   )
-  .delete(productIdParamValidation, validate, deleteProduct);
+  .delete(productIdParamValidation, validate, requireRole(['admin']), deleteProduct);

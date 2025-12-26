@@ -11,6 +11,12 @@ import {
   clearCart,
 } from '../services/index.js';
 
+import type { 
+  AddToCartBody, 
+  UpdateCartItemBody, 
+  CartItemParams 
+} from '../types/index.js';
+
 // Get user cart
 export const getUserCart = asyncHandler(async (req: Request, res: Response) => {
   try {
@@ -24,7 +30,7 @@ export const getUserCart = asyncHandler(async (req: Request, res: Response) => {
 });
 
 // Add to cart
-export const addItemToCart = asyncHandler(async (req: Request, res: Response) => {
+export const addItemToCart = asyncHandler(async (req: Request<{},{}, AddToCartBody>, res: Response) => {
   const { productId, quantity } = req.body;
 
   try {
@@ -50,7 +56,7 @@ export const addItemToCart = asyncHandler(async (req: Request, res: Response) =>
 });
 
 // Update cart
-export const updateItemInCart = asyncHandler(async (req: Request, res: Response) => {
+export const updateItemInCart = asyncHandler(async (req: Request<CartItemParams,{}, UpdateCartItemBody>, res: Response) => {
   const { productId } = req.params;
   const { quantity } = req.body;
 
@@ -79,7 +85,7 @@ export const updateItemInCart = asyncHandler(async (req: Request, res: Response)
 });
 
 // Remove from cart
-export const removeItemFromCart = asyncHandler(async (req: Request, res: Response) => {
+export const removeItemFromCart = asyncHandler(async (req: Request<CartItemParams,{},{}>, res: Response) => {
   const { productId } = req.params;
 
   try {

@@ -6,10 +6,7 @@ import { initRateLimiter } from "./config/rate.limiter.js";
 import {createApp} from "./app.js"
 
 // Must push changes:
-// TODO: create index.ts file in every folder and export all modules from there
 // TODO: implement filtering on getProducts endpoint
-// TODO: Refactor code before using services
-// TODO: Add admin role and permissions middleware
 // TODO: Implement security best practices
 // TODO: Add API documentation using Swagger
 // TODO: Rate limiting and request throttling, rate limiting algorithms

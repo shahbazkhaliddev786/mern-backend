@@ -10,9 +10,9 @@ import {
 import {
   createBrandValidation,
   updateBrandValidation,
-} from '../validations/brand.validations.js';
+  brandIdValidation
+} from '../validations/index.js';
 import { validate } from '../middlewares/validation.middleware.js';
-import { param } from 'express-validator';
 
 export const brandRouter = Router();
 
@@ -28,18 +28,19 @@ brandRouter.get('/', getBrands);
 brandRouter
   .route('/:id')
   .get(
-    param('id').isMongoId().withMessage('Invalid brand ID format'),
+    brandIdValidation,
     validate,
     getBrand
   )
-  .patch(
-    param('id').isMongoId().withMessage('Invalid brand ID format'),
+  .put(
+    brandIdValidation,
+    validate,
     updateBrandValidation,
     validate,
     updateBrand
   )
   .delete(
-    param('id').isMongoId().withMessage('Invalid brand ID format'),
+    brandIdValidation,
     validate,
     deleteBrand
   );

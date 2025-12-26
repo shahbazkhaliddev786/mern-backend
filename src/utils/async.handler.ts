@@ -1,17 +1,22 @@
-import type { Request, Response, NextFunction, RequestHandler } from "express";
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
-/**
- * Wraps an async controller function and automatically
- * passes errors to next() (global error handler)
- *
- * @param fn - Async controller function
- * @returns Express RequestHandler
- */
+/* Parameters of generic:
+    1st → req.params
+    2nd → response body
+    3rd → req.body
+    4th → req.query
+*/
 
-export const asyncHandler = (
-  fn: (req: Request, res: Response, next: NextFunction) => Promise<void>
+export const asyncHandler = <
+  P = Record<string, string>,
+  ResBody = any,
+  ReqBody = any,
+  ReqQuery = Record<string, string>
+>(
+  fn: (req: Request<P, ResBody, ReqBody, ReqQuery>, res: Response<ResBody>, next: NextFunction) => Promise<any>
 ): RequestHandler => {
-  return (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+  return (req: Request, res: Response, next: NextFunction) => {
+    // Cast req/res to any to bridge the generic gap — safe because we control the types
+    Promise.resolve(fn(req as any, res as any, next)).catch(next);
   };
 };

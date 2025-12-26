@@ -10,6 +10,7 @@ import {
 import {
   createCategoryValidation,
   updateCategoryValidation,
+  categoryIdValidation
 } from '../validations/category.validations.js';
 import { validate } from '../middlewares/validation.middleware.js';
 import { param } from 'express-validator';
@@ -28,18 +29,18 @@ categoryRouter.get('/', getCategories);
 categoryRouter
   .route('/:id')
   .get(
-    param('id').isMongoId().withMessage('Invalid category ID format'),
+    categoryIdValidation,
     validate,
     getCategory
   )
-  .patch(
-    param('id').isMongoId().withMessage('Invalid category ID format'),
+  .put(
+    categoryIdValidation,
     updateCategoryValidation,
     validate,
     updateCategory
   )
   .delete(
-    param('id').isMongoId().withMessage('Invalid category ID format'),
+    categoryIdValidation,
     validate,
     deleteCategory
   );

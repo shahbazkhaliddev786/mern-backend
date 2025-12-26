@@ -12,6 +12,14 @@ import {
 } from '../services/auth.service.js';
 import cloudinary from '../utils/cloudinary.js';
 import bufferGenerator from '../utils/buffer.generator.js';
+import type {
+  RegisterBody,
+  ResendOtpBody,
+  VerifyOtpBody,
+  LoginBody,
+  RefreshTokenBody,
+  LogoutBody
+} from '../types/index.js'
 
 // Todos:
   // Logout from all devices
@@ -23,7 +31,7 @@ import bufferGenerator from '../utils/buffer.generator.js';
   // Remaining auth flow, securing and optimizing it
 
 // register
-export const register = asyncHandler(async (req: Request, res: Response) => {
+export const register = asyncHandler(async (req: Request<{},{},RegisterBody>, res: Response) => {
   const { name, email, password } = req.body;
 
   if (!name?.trim() || !email?.trim() || !password) {
@@ -75,7 +83,7 @@ export const register = asyncHandler(async (req: Request, res: Response) => {
 });
 
 // Resend OTP
-export const resendOTP = asyncHandler(async (req: Request, res: Response) => {
+export const resendOTP = asyncHandler(async (req: Request<{},{},ResendOtpBody>, res: Response) => {
   const { email } = req.body;
 
   await sendOTP(email.toLowerCase().trim());
@@ -86,7 +94,7 @@ export const resendOTP = asyncHandler(async (req: Request, res: Response) => {
 });
 
 // Verify OTP and complete registration/login
-export const verifyOtp = asyncHandler(async (req: Request, res: Response) => {
+export const verifyOtp = asyncHandler(async (req: Request<{},{},VerifyOtpBody>, res: Response) => {
   const { email, otp } = req.body;
 
   const tokens = await verifyOTP(email.toLowerCase().trim(), otp);
@@ -97,7 +105,7 @@ export const verifyOtp = asyncHandler(async (req: Request, res: Response) => {
 });
 
 // Login with password
-export const login = asyncHandler(async (req: Request, res: Response) => {
+export const login = asyncHandler(async (req: Request<{},{},LoginBody>, res: Response) => {
   const { email, password } = req.body;
 
   const { accessToken, refreshToken, user } = await loginWithPassword(
@@ -120,7 +128,7 @@ export const login = asyncHandler(async (req: Request, res: Response) => {
 });
 
 // Refresh access token
-export const refreshToken = asyncHandler(async (req: Request, res: Response) => {
+export const refreshToken = asyncHandler(async (req: Request<{},{},RefreshTokenBody>, res: Response) => {
   const { refreshToken } = req.body;
 
   if (!refreshToken) {
@@ -135,7 +143,7 @@ export const refreshToken = asyncHandler(async (req: Request, res: Response) => 
 });
 
 // Logout (invalidate refresh token)
-export const logoutUser = asyncHandler(async (req: Request, res: Response) => {
+export const logoutUser = asyncHandler(async (req: Request<{},{},LogoutBody>, res: Response) => {
   const { refreshToken } = req.body;
 
   if (refreshToken) {

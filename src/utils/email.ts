@@ -3,9 +3,6 @@ import nodemailer from 'nodemailer';
 import config from '../config/config.js';
 import logger from './logger.js';
 
-console.log(config.GMAIL)
-console.log(config.PASSWORD)
-
 const transporter = nodemailer.createTransport({
   host: config.SMTP_HOST,
   port: Number(config.SMTP_PORT),

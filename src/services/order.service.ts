@@ -1,9 +1,11 @@
 import type { Request } from 'express';
-import { Order } from '../models/order.model.js';
+import { Order, Product } from '../models/index.js';
 import { getCart, clearCart } from './cart.service.js';
 import { stripeClient } from '../config/stripe.js';
 import config from '../config/config.js';
-import { sendOrderConfirmationEmail } from '../utils/order.confirmation.email.js';
+import { 
+  sendOrderConfirmationEmail 
+} from '../utils/order.confirmation.email.js';
 import logger from '../utils/logger.js';
 
 export const createCheckoutSession = async (req: Request) => {
@@ -107,17 +109,51 @@ export const handleStripeWebhook = async (rawBody: Buffer, sig: string | string[
   return { received: true };
 };
 
+// Updated updateOrderStatus with stock deduction
 export const updateOrderStatus = async (
   orderId: string,
-  status: 'pending' | 'dispatched' | 'completed'
+  newStatus: 'pending' | 'dispatched' | 'completed'
 ) => {
-  const order = await Order.findById(orderId);
+  const order = await Order.findById(orderId).populate('items.product');
   if (!order) throw new Error('Order not found');
 
-  order.status = status;
+  const oldStatus = order.status;
+
+  // Only decrement stock when moving to dispatched or completed
+  // and only if it hasn't been decremented before (i.e., was pending)
+  if (
+    (newStatus === 'dispatched' || newStatus === 'completed') &&
+    oldStatus === 'pending'
+  ) {
+    // Use atomic update to safely decrement stock
+    const bulkOps = order.items.map((item: any) => ({
+      updateOne: {
+        filter: { _id: item.product._id, stock: { $gte: item.quantity } },
+        update: { $inc: { stock: -item.quantity } },
+      },
+    }));
+
+    if (bulkOps.length > 0) {
+      const result = await Product.bulkWrite(bulkOps);
+
+      // Check if all products had enough stock
+      const failedUpdates = bulkOps.length - (result.matchedCount || 0);
+      if (failedUpdates > 0) {
+        throw new Error('Insufficient stock for one or more products');
+      }
+    }
+  }
+
+  // Update order status
+  order.status = newStatus;
   await order.save();
 
-  logger.info('Order status updated', { orderId, status });
+  logger.info('Order status updated with stock deduction', {
+    orderId,
+    oldStatus,
+    newStatus,
+    itemsDeducted: order.items.length,
+  });
 
   return order;
 };

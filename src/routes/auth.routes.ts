@@ -16,12 +16,13 @@ import {
   verifyOtpValidation,
   refreshTokenValidation
 } from '../validations/index.js';
+import { validate } from '../middlewares/validation.middleware.js';
 
 export const authRouter = Router();
 
-authRouter.post('/register', registerValidation, uploadSingleFile, register);
-authRouter.post('/resend-otp', resendOtpValidation, resendOTP);
-authRouter.post('/verify-otp', verifyOtpValidation, verifyOtp);
-authRouter.post('/login', loginValidation, login);
-authRouter.post('/refresh-token', refreshTokenValidation, refreshToken);
+authRouter.post('/register', registerValidation, validate, uploadSingleFile, register);
+authRouter.post('/resend-otp', resendOtpValidation, validate, resendOTP);
+authRouter.post('/verify-otp', verifyOtpValidation, validate, verifyOtp);
+authRouter.post('/login', loginValidation, validate, login);
+authRouter.post('/refresh-token', refreshTokenValidation, validate, refreshToken);
 authRouter.post('/logout', logoutUser);

@@ -1,6 +1,9 @@
-import { User } from '../models/auth.model.js';
-import { OTP } from '../models/otp.model.js';
-import { generateAccessToken, generateRefreshToken, hashRefreshToken } from '../utils/auth.utils.js';
+import { User, OTP } from '../models/index.js';
+import { 
+  generateAccessToken, 
+  generateRefreshToken, 
+  hashRefreshToken 
+} from '../utils/auth.utils.js';
 import { sendOTPEmail } from '../utils/email.js';
 
 export const registerUser = async (

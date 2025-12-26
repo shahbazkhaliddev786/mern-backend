@@ -1,6 +1,5 @@
 import type { Request } from 'express';
-import { Cart } from '../models/cart.model.js';
-import { Product } from '../models/product.model.js';
+import { Cart, Product } from '../models/index.js';
 import { Types } from 'mongoose';
 
 interface CartItem {

@@ -71,10 +71,3 @@ export const updateProductValidation = [
     .isMongoId()
     .withMessage('Valid brand ID is required'),
 ];
-
-// SHARED: ID validation for get, update, delete by ID
-export const productIdParamValidation = [
-  param('id')
-    .isMongoId()
-    .withMessage('Invalid product ID format'),
-];

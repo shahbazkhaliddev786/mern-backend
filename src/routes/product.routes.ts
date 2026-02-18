@@ -12,8 +12,8 @@ import {uploadMultipleFiles} from '../middlewares/multer.middleware.js';
 import {
   createProductValidation,
   updateProductValidation,
-  productIdParamValidation,
-} from '../validations/product.validations.js';
+  IdValidation,
+} from '../validations/index.js';
 
 import { validate } from '../middlewares/validation.middleware.js';
 import { requireRole } from '../middlewares/admin.js';
@@ -37,13 +37,13 @@ productRouter.get('/', getProducts);
 // GET, UPDATE, DELETE by ID
 productRouter
   .route('/:id')
-  .get(productIdParamValidation, validate, getProduct)
+  .get(IdValidation, validate, getProduct)
   .patch(
     uploadMultipleFiles,
-    productIdParamValidation,
+    IdValidation,
     updateProductValidation,
     validate,
     requireRole(['admin']),
     updateProduct
   )
-  .delete(productIdParamValidation, validate, requireRole(['admin']), deleteProduct);
+  .delete(IdValidation, validate, requireRole(['admin']), deleteProduct);

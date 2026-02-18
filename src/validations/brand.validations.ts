@@ -18,10 +18,3 @@ export const updateBrandValidation = [
     .withMessage('Brand name must be between 2 and 100 characters')
     .bail(),
 ];
-
-// Optional: ID validation for params (GET, UPDATE, DELETE by ID)
-export const brandIdValidation = [
-  body('id') // or use param('id') depending on route
-    .isMongoId()
-    .withMessage('Invalid brand ID'),
-];

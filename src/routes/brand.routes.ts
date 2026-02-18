@@ -10,7 +10,7 @@ import {
 import {
   createBrandValidation,
   updateBrandValidation,
-  brandIdValidation
+  IdValidation
 } from '../validations/index.js';
 import { validate } from '../middlewares/validation.middleware.js';
 
@@ -28,19 +28,18 @@ brandRouter.get('/', getBrands);
 brandRouter
   .route('/:id')
   .get(
-    brandIdValidation,
+    IdValidation,
     validate,
     getBrand
   )
   .put(
-    brandIdValidation,
-    validate,
+    IdValidation,
     updateBrandValidation,
     validate,
     updateBrand
   )
   .delete(
-    brandIdValidation,
+    IdValidation,
     validate,
     deleteBrand
   );

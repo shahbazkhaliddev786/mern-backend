@@ -10,10 +10,9 @@ import {
 import {
   createCategoryValidation,
   updateCategoryValidation,
-  categoryIdValidation
-} from '../validations/category.validations.js';
+  IdValidation
+} from '../validations/index.js';
 import { validate } from '../middlewares/validation.middleware.js';
-import { param } from 'express-validator';
 
 export const categoryRouter = Router();
 
@@ -29,18 +28,18 @@ categoryRouter.get('/', getCategories);
 categoryRouter
   .route('/:id')
   .get(
-    categoryIdValidation,
+    IdValidation,
     validate,
     getCategory
   )
   .put(
-    categoryIdValidation,
+    IdValidation,
     updateCategoryValidation,
     validate,
     updateCategory
   )
   .delete(
-    categoryIdValidation,
+    IdValidation,
     validate,
     deleteCategory
   );

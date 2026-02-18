@@ -19,8 +19,3 @@ export const updateCategoryValidation = [
     .bail(),
 ];
 
-export const categoryIdValidation = [
-  body('id')
-    .isMongoId()
-    .withMessage('Invalid category ID'),
-];

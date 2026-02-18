@@ -1,17 +1,16 @@
 
-// TODO: Analyze and improve validation, if needed
-
+export {
+    IdValidation
+} from './common.validations.js';
 
 export {
     createBrandValidation,
-    updateBrandValidation,
-    brandIdValidation
+    updateBrandValidation
 } from './brand.validations.js';
 
 export {
     createCategoryValidation,
-    updateCategoryValidation,
-    categoryIdValidation
+    updateCategoryValidation
 } from './category.validations.js';
 
 export {
@@ -32,3 +31,8 @@ export {
     createOrderValidation,
     updateOrderStatusValidation
 } from './order.validations.js';
+
+export {
+    createProductValidation,
+    updateProductValidation,
+} from './product.validations.js';

@@ -22,6 +22,10 @@ export const getUserCart = asyncHandler(async (req: Request, res: Response) => {
   try {
     const cart = await getCart(req);
 
+    logger.info('Cart retrieved successfully', {
+      userId: (req as any).user?._id || 'guest',
+      itemCount: cart.items ? cart.items.length : 0,
+    });
     return apiResponse(res, 200, 'success', 'Cart retrieved successfully', cart);
   } catch (error: any) {
     logger.error('Error retrieving cart', { error: error.message, userId: (req as any).user?._id || 'guest' });

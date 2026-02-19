@@ -88,57 +88,73 @@ export const addToCart = async (
   productId: string,
   quantity: number = 1
 ): Promise<any> => {
+  // ─── Common validation ───────────────────────────────────────
   const product = await Product.findById(productId);
   if (!product) throw new Error('Product not found');
-  if (product.stock < quantity) throw new Error('Insufficient stock');
 
-  const user: any = (req as any).user;
+  // Early check for initial quantity
+  if (product.stock < quantity) {
+    throw new Error('Insufficient stock');
+  }
 
+  const user = (req as any).user;
+
+  // ─── Logged-in user path ─────────────────────────────────────
   if (user) {
-    let cart: any = await Cart.findOne({ user: user._id });
+    let cart = await Cart.findOne({ user: user._id });
     if (!cart) {
       cart = await Cart.create({ user: user._id, items: [] });
     }
 
     const itemIndex = cart.items.findIndex(
-      (item: any) => item.product.toString() === productId
+      (item) => item.product.toString() === productId
     );
 
+    // Calculate final quantity if item already exists
     let newQuantity = quantity;
-    if (itemIndex > -1) {
-      newQuantity += cart.items[itemIndex].quantity;
+    if (itemIndex !== -1) {
+      newQuantity += cart.items[itemIndex]!.quantity;
     }
 
+    // Final stock validation after merge
     if (product.stock < newQuantity) {
       throw new Error('Not enough stock');
     }
 
-    if (itemIndex > -1) {
-      cart.items[itemIndex].quantity = newQuantity;
+    // Update existing or add new
+    if (itemIndex !== -1) {
+      // Safe: we already checked itemIndex !== -1
+      cart.items[itemIndex]!.quantity = newQuantity;
     } else {
-      cart.items.push({ product: productId, quantity });
+      // Convert string ID → ObjectId (required by schema)
+      cart.items.push({
+        product: new Types.ObjectId(productId),
+        quantity,
+      });
     }
 
     await cart.save();
     return getCart(req);
   }
 
-  const sessionCart: any = getSessionCart(req);
+  // ─── Guest path ──────────────────────────────────────────────
+  const sessionCart = getSessionCart(req);
+
   const itemIndex = sessionCart.items.findIndex(
-    (item: any) => item.product === productId
+    (item) => item.product === productId
   );
 
   let newQuantity = quantity;
-  if (itemIndex > -1) {
-    newQuantity += sessionCart.items[itemIndex].quantity;
+  if (itemIndex !== -1) {
+    newQuantity += sessionCart.items[itemIndex]!.quantity;
   }
 
   if (product.stock < newQuantity) {
     throw new Error('Not enough stock');
   }
 
-  if (itemIndex > -1) {
-    sessionCart.items[itemIndex].quantity = newQuantity;
+  if (itemIndex !== -1) {
+    sessionCart.items[itemIndex]!.quantity = newQuantity;
   } else {
     sessionCart.items.push({ product: productId, quantity });
   }

@@ -20,6 +20,7 @@ import type {
   RefreshTokenBody,
   LogoutBody
 } from '../types/index.js'
+import { mergeGuestCartOnLogin } from '../services/cart.service.js';
 
 // Todos:
   // Logout from all devices
@@ -112,6 +113,20 @@ export const login = asyncHandler(async (req: Request<{},{},LoginBody>, res: Res
     email.toLowerCase().trim(),
     password
   );
+
+  //Merge guest cart items into user's cart
+  try {
+    await mergeGuestCartOnLogin(req);
+    logger.info('Guest cart merged successfully after login', {
+      userId: user._id,
+    });
+  } catch (mergeError: any) {
+    logger.warn('Failed to merge guest cart after login', {
+      userId: user._id,
+      error: mergeError.message,
+    });
+    // We don't want to fail login because of cart merge — just log it
+  }
 
   logger.info('User logged in with password', { userId: user._id });
 

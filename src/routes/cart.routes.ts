@@ -20,7 +20,7 @@ import { authMiddleware } from '../middlewares/auth.middleware.js';
 export const cartRouter = Router();
 
 cartRouter.get('/', authMiddleware, getUserCart);                    
-cartRouter.post('/', authMiddleware, addToCartValidation, validate, addItemToCart);                 
+cartRouter.post('/', addToCartValidation, validate, addItemToCart);                 
 cartRouter.patch('/items/:productId', authMiddleware, updateCartItemValidation, validate, updateItemInCart); 
 cartRouter.delete('/items/:productId', authMiddleware, removeFromCartValidation, validate, removeItemFromCart); 
 cartRouter.delete('/', authMiddleware, clearUserCart);           

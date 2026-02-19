@@ -33,7 +33,7 @@ export const createProductValidation = [
     .withMessage('Valid brand ID is required'),
 ];
 
-// UPDATE PRODUCT - All fields optional but properly validated if provided
+// UPDATE PRODUCT
 export const updateProductValidation = [
   body('name')
     .optional()

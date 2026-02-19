@@ -81,3 +81,34 @@ export const refreshTokenValidation = [
     .isString()
     .withMessage('Refresh token must be a string'),
 ];
+
+export const forgotPasswordValidation = [
+  body('email')
+    .isEmail()
+    .withMessage('Valid email is required')
+    .normalizeEmail(),
+];
+
+export const resetPasswordWithOtpValidation = [
+  body('email')
+    .isEmail()
+    .withMessage('Valid email is required')
+    .normalizeEmail(),
+
+  body('otp')
+    .isString()
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be 6 digits'),
+
+  body('newPassword')
+    .isLength({ min: 6 })
+    .withMessage('New password must be at least 6 characters'),
+
+  body('confirmPassword')
+    .custom((value, { req }) => {
+      if (value !== req.body.newPassword) {
+        throw new Error('Passwords do not match');
+      }
+      return true;
+    }),
+];

@@ -1,4 +1,5 @@
 
+
 export {
     IdValidation
 } from './common.validations.js';
@@ -24,7 +25,9 @@ export {
     loginValidation,
     resendOtpValidation,
     verifyOtpValidation,
-    refreshTokenValidation
+    refreshTokenValidation,
+    forgotPasswordValidation,
+    resetPasswordWithOtpValidation
 } from './auth.validations.js';
 
 export {

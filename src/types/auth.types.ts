@@ -1,3 +1,4 @@
+
 export interface RegisterBody {
   name: string;
   email: string;
@@ -24,4 +25,23 @@ export interface RefreshTokenBody {
 
 export interface LogoutBody {
   refreshToken?: string;
+}
+
+export interface UpdateProfileBody {
+  name?: string;
+}
+
+export interface ForgotPasswordBody {
+  email: string;
+}
+
+export interface ResetPasswordWithOtpBody {
+  email: string;
+  otp: string;
+  newPassword: string;
+  confirmPassword: string;
+}
+
+export interface DeleteAccountBody {
+  password: string; 
 }

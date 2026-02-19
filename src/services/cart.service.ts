@@ -11,12 +11,22 @@ interface SessionCart {
   items: CartItem[];
 }
 
-// Helper for session cart — safe with any
+// Helper for session cart 
 const getSessionCart = (req: Request): SessionCart => {
-  const session: any = req.session;
+  console.log('[SESSION] Accessing session:', req.session);
+
+  const session = req.session as any;
+  if (!session) {
+    console.error('[SESSION] req.session is undefined! Session middleware missing?');
+    return { items: [] };
+  }
+
   if (!session.cart) {
+    console.log('[SESSION] Creating new empty cart in session');
     session.cart = { items: [] };
   }
+
+  console.log('[SESSION] Returning cart:', session.cart);
   return session.cart;
 };
 
@@ -254,30 +264,45 @@ export const clearCart = async (req: Request): Promise<any> => {
 };
 
 export const mergeGuestCartOnLogin = async (req: Request): Promise<void> => {
-  const user: any = (req as any).user;
-  if (!user) return;
-
-  const userId = user._id;
-  const sessionCart: any = getSessionCart(req);
-
-  if (!sessionCart.items || sessionCart.items.length === 0) {
+  const user = (req as any).user;
+  if (!user) {
+    console.log('[MERGE] No user found → skipping merge');
     return;
   }
 
-  let dbCart: any = await Cart.findOne({ user: userId });
+  console.log('[MERGE] Starting merge for user:', user._id.toString());
+
+  const sessionCart = getSessionCart(req);
+  console.log('[MERGE] Raw session cart:', JSON.stringify(req.session, null, 2));
+
+  if (!sessionCart?.items?.length) {
+    console.log('[MERGE] No items in session cart → nothing to merge');
+    return;
+  }
+
+  console.log('[MERGE] Guest items to merge:', JSON.stringify(sessionCart.items, null, 2));
+
+  let dbCart = await Cart.findOne({ user: user._id });
+  console.log('[MERGE] DB cart before merge:', dbCart ? dbCart.toObject() : 'No DB cart found');
 
   if (!dbCart) {
-    dbCart = await Cart.create({ user: userId, items: [] });
+    console.log('[MERGE] Creating new DB cart');
+    dbCart = await Cart.create({ user: user._id, items: [] });
   }
 
   for (const guestItem of sessionCart.items) {
-    const existingItemIndex = dbCart.items.findIndex(
-      (item: any) => item.product.toString() === guestItem.product
+    console.log('[MERGE] Processing guest item:', guestItem);
+
+    const productIdStr = guestItem.product.toString();
+    const existingIndex = dbCart.items.findIndex(
+      (item: any) => item.product.toString() === productIdStr
     );
 
-    if (existingItemIndex > -1) {
-      dbCart.items[existingItemIndex].quantity += guestItem.quantity;
+    if (existingIndex !== -1) {
+      console.log(`[MERGE] Updating existing item at index ${existingIndex}`);
+      dbCart.items[existingIndex]!.quantity += guestItem.quantity;
     } else {
+      console.log('[MERGE] Adding new item to DB cart');
       dbCart.items.push({
         product: new Types.ObjectId(guestItem.product),
         quantity: guestItem.quantity,
@@ -285,7 +310,30 @@ export const mergeGuestCartOnLogin = async (req: Request): Promise<void> => {
     }
   }
 
-  await dbCart.save();
+  console.log('[MERGE] DB cart after updates (before save):', dbCart.toObject());
 
-  (req.session as any).cart = { items: [] };
+  try {
+    await dbCart.save();
+    console.log('[MERGE] DB cart saved successfully');
+  } catch (saveError) {
+    console.error('[MERGE] Failed to save DB cart:', saveError);
+    throw saveError; // let it bubble up so we can see it in logs
+  }
+
+  // Clear session cart
+  req.session.cart = { items: [] };
+  console.log('[MERGE] Session cart cleared');
+
+  // Optional: force session save (sometimes needed)
+  await new Promise<void>((resolve, reject) => {
+    req.session.save((err) => {
+      if (err) {
+        console.error('[MERGE] Failed to save session:', err);
+        reject(err);
+      } else {
+        console.log('[MERGE] Session saved');
+        resolve();
+      }
+    });
+  });
 };

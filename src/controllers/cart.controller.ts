@@ -1,4 +1,3 @@
-
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../utils/async.handler.js';
 import { apiResponse } from '../utils/api.response.js';

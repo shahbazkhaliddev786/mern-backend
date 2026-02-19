@@ -9,6 +9,10 @@ import {
   loginWithPassword,
   refreshAccessToken,
   logout,
+  updateUserProfile,
+  forgotPassword,
+  resetPasswordWithOtp,
+  deleteUserAccount
 } from '../services/auth.service.js';
 import cloudinary from '../utils/cloudinary.js';
 import bufferGenerator from '../utils/buffer.generator.js';
@@ -18,18 +22,13 @@ import type {
   VerifyOtpBody,
   LoginBody,
   RefreshTokenBody,
-  LogoutBody
+  LogoutBody,
+  UpdateProfileBody,
+  ForgotPasswordBody,
+  ResetPasswordWithOtpBody,
+  DeleteAccountBody
 } from '../types/index.js'
 import { mergeGuestCartOnLogin } from '../services/cart.service.js';
-
-// Todos:
-  // Logout from all devices
-  // Explain token rotation security
-  // Update user profile
-  // Change password
-  // Delete account
-  // Continue with google
-  // Remaining auth flow, securing and optimizing it
 
 // register
 export const register = asyncHandler(async (req: Request<{},{},RegisterBody>, res: Response) => {
@@ -114,12 +113,16 @@ export const login = asyncHandler(async (req: Request<{},{},LoginBody>, res: Res
     password
   );
 
+  (req as any).user = user;
+
+  if (!user) {
+    return apiResponse(res, 403, 'error', 'User not found');
+  }
+
   //Merge guest cart items into user's cart
   try {
     await mergeGuestCartOnLogin(req);
-    logger.info('Guest cart merged successfully after login', {
-      userId: user._id,
-    });
+    logger.info('Guest cart merged successfully after login', { userId: user._id });
   } catch (mergeError: any) {
     logger.warn('Failed to merge guest cart after login', {
       userId: user._id,
@@ -170,4 +173,55 @@ export const logoutUser = asyncHandler(async (req: Request<{},{},LogoutBody>, re
   logger.info('User logged out', { userId });
 
   return apiResponse(res, 200, 'success', 'Logged out successfully');
+});
+
+
+// Update profile
+export const updateProfile = asyncHandler(async (req: Request<{}, {}, UpdateProfileBody>, res: Response) => {
+  const userId = (req as any).user._id;
+  const { name } = req.body;
+
+  const updatedUser = await updateUserProfile(userId, name, req.file);
+
+  logger.info('User profile updated', { userId });
+
+  return apiResponse(res, 200, 'success', 'Profile updated successfully', updatedUser);
+});
+
+// Forgot Password - Send OTP
+export const forgetPassword = asyncHandler(async (req: Request<{}, {}, ForgotPasswordBody>, res: Response) => {
+  const { email } = req.body;
+
+  await forgotPassword(email);
+
+  logger.info('Password reset OTP requested', { email });
+
+  return apiResponse(res, 200, 'success', 'If email exists, OTP sent to reset password');
+});
+
+// Reset Password
+export const resetPassword = asyncHandler(async (req: Request<{}, {}, ResetPasswordWithOtpBody>, res: Response) => {
+  const { email, otp, newPassword, confirmPassword } = req.body;
+
+  if (newPassword !== confirmPassword) {
+    return apiResponse(res, 400, 'error', 'Passwords do not match');
+  }
+
+  await resetPasswordWithOtp(email, otp, newPassword);
+
+  logger.info('Password reset with OTP successful', { email });
+
+  return apiResponse(res, 200, 'success', 'Password reset successfully. You can now login.');
+});
+
+// Delete account
+export const deleteAccount = asyncHandler(async (req: Request<{}, {}, DeleteAccountBody>, res: Response) => {
+  const userId = (req as any).user._id;
+  const { password } = req.body;
+
+  await deleteUserAccount(userId, password);
+
+  logger.info('User account deleted', { userId });
+
+  return apiResponse(res, 200, 'success', 'Account deleted successfully');
 });

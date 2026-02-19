@@ -31,6 +31,10 @@ export {
   login,
   refreshToken,
   logoutUser,
+  updateProfile,
+  forgetPassword,
+  resetPassword,
+  deleteAccount
 } from './auth.controller.js';
 
 export {

@@ -72,15 +72,121 @@ export const createProductService = async (
   return populatedProduct;
 };
 
-export const getAllProductsService = async () => {
-  return await Product.find()
-    .sort({ createdAt: -1 })
+export const getAllProductsService = async ({
+  search,
+  category,
+  brand,
+  minPrice,
+  maxPrice,
+  sort = 'newest',
+  page = 1,
+  limit = 20,
+}: {
+  search?: string;
+  category?: string | string[];
+  brand?: string | string[];
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: 'relevance' | 'price_low' | 'price_high' | 'newest' | 'best_selling';
+  page?: number;
+  limit?: number;
+} = {}) => {
+  // Build query
+  const query: any = {};
+
+  // Text search on name and description
+  if (search && search.trim()) {
+    const searchRegex = new RegExp(search.trim(), 'i');
+    query.$or = [
+      { name: searchRegex },
+      { description: searchRegex },
+    ];
+  }
+
+  // Category filter (multi-select)
+  if (category) {
+    const categories = Array.isArray(category) ? category : [category];
+    if (categories.length > 0) {
+      query.category = { $in: categories.map(id => new Types.ObjectId(id)) };
+    }
+  }
+
+  // Brand filter (multi-select)
+  if (brand) {
+    const brands = Array.isArray(brand) ? brand : [brand];
+    if (brands.length > 0) {
+      query.brand = { $in: brands.map(id => new Types.ObjectId(id)) };
+    }
+  }
+
+  // Price range
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    query.price = {};
+    if (minPrice !== undefined) query.price.$gte = Number(minPrice);
+    if (maxPrice !== undefined) query.price.$lte = Number(maxPrice);
+  }
+
+  // Sorting
+  let sortOption: any = { createdAt: -1 }; // default: newest
+
+  switch (sort) {
+    case 'relevance':
+      if (search && search.trim()) {
+        // Simple relevance: match name first, then description
+        sortOption = [
+          { name: { $regex: search.trim(), $options: 'i' } },
+          { description: { $regex: search.trim(), $options: 'i' } },
+          { createdAt: -1 },
+        ];
+      } else {
+        sortOption = { createdAt: -1 };
+      }
+      break;
+    case 'price_low':
+      sortOption = { price: 1 };
+      break;
+    case 'price_high':
+      sortOption = { price: -1 };
+      break;
+    case 'best_selling':
+      // TODO: add salesCount field to Product model later
+      sortOption = { createdAt: -1 }; // fallback for now
+      break;
+    case 'newest':
+    default:
+      sortOption = { createdAt: -1 };
+      break;
+  }
+
+  // Pagination
+  const skip = (Number(page) - 1) * Number(limit);
+  const limitNum = Number(limit);
+
+  // Execute query
+  const products = await Product.find(query)
+    .sort(sortOption)
+    .skip(skip)
+    .limit(limitNum)
     .populate([
       { path: 'category', select: 'name' },
       { path: 'brand', select: 'name' },
     ])
     .select('-__v')
     .lean();
+
+  // Total count for pagination metadata
+  const total = await Product.countDocuments(query);
+
+  return {
+    products,
+    pagination: {
+      currentPage: Number(page),
+      totalPages: Math.ceil(total / limitNum),
+      totalItems: total,
+      hasNext: skip + products.length < total,
+      hasPrev: Number(page) > 1,
+    },
+  };
 };
 
 export const getProductByIdService = async (id: string) => {

@@ -7,9 +7,7 @@ export type ApiResponse<T = unknown> = {
   meta?: Record<string, unknown>;
 };
 
-/**
- * Universal response helper - works for success, error, any status code
- */
+
 export const apiResponse = <T>(
   res: Response,
   statusCode: number,

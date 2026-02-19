@@ -1,4 +1,4 @@
-import cors from "cors";
+import { corsMiddleware } from '../middlewares/cors.js'
 import express from "express";
 import type { Express } from "express";
 import helmet from "helmet";
@@ -50,7 +50,7 @@ export default async function expressLoader(app: Express) {
     }
   );
 
-  app.use(cors());
+  app.use(corsMiddleware);
   app.use(express.json({ limit: "15kb" }));
   app.use(express.urlencoded({ extended: true, limit: "15kb" }));
   app.use(cookieParser());
@@ -59,7 +59,7 @@ export default async function expressLoader(app: Express) {
     session({
       secret: process.env.SESSION_SECRET || 'fallback-secret-change-in-production',
       resave: false,
-      saveUninitialized: false,
+      saveUninitialized: true,
       store: MongoStore.create({
         mongoUrl: config.DATABASE_URL,
       }),

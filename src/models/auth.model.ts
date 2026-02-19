@@ -14,7 +14,7 @@ export interface IUser extends Document {
 
   comparePassword(candidatePassword: string): Promise<boolean>;
 }
-// TODO: Add roles and permissions later
+
 const UserSchema: Schema = new Schema(
   {
     name: { type: String, required: true, trim: true },

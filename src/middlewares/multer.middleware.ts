@@ -1,8 +1,6 @@
 import multer from "multer";
 
-// TODO: 
-    // Configure storage, file filter, limits as needed
-    // File validation can be added here
+
     
 const storage = multer.memoryStorage();
 

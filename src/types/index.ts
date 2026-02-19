@@ -23,7 +23,11 @@ export type {
     VerifyOtpBody,
     LoginBody,
     RefreshTokenBody,
-    LogoutBody
+    LogoutBody,
+    UpdateProfileBody,
+    ForgotPasswordBody,
+    ResetPasswordWithOtpBody,
+    DeleteAccountBody
 } from './auth.types.js'
 
 export type {

@@ -5,6 +5,8 @@ import {
   hashRefreshToken 
 } from '../utils/auth.utils.js';
 import { sendOTPEmail } from '../utils/email.js';
+import bufferGenerator from '../utils/buffer.generator.js'
+import cloudinary from '../utils/cloudinary.js';
 
 export const registerUser = async (
   name: string,
@@ -114,4 +116,102 @@ export const refreshAccessToken = async (refreshToken: string) => {
 export const logout = async (refreshToken: string) => {
   const hashed = hashRefreshToken(refreshToken);
   await User.updateOne({ refreshTokens: hashed }, { $pull: { refreshTokens: hashed } });
+};
+
+// Update user profile
+export const updateUserProfile = async (
+  userId: string,
+  name?: string,
+  profilePictureFile?: Express.Multer.File
+) => {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
+
+  if (name && name.trim()) {
+    user.name = name.trim();
+  }
+
+  if (profilePictureFile) {
+    try {
+      const dataUri = bufferGenerator(profilePictureFile);
+      if (!dataUri?.content) throw new Error('Failed to process image');
+
+      const result = await cloudinary.uploader.upload(dataUri.content, {
+        folder: 'profiles',
+        public_id: user._id.toString(), // overwrite old image
+        overwrite: true,
+        transformation: [
+          { width: 400, height: 400, crop: 'fill', gravity: 'face' },
+          { quality: 'auto', fetch_format: 'auto' },
+        ],
+      });
+
+      user.profile = result.secure_url;
+    } catch (error: any) {
+      throw new Error('Failed to upload profile picture');
+    }
+  }
+
+  await user.save();
+
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    profile: user.profile,
+  };
+};
+
+export const forgotPassword = async (email: string) => {
+  const user = await User.findOne({ email: email.toLowerCase() });
+  if (!user) {
+    return { message: 'If email exists, OTP sent for password reset.' };
+  }
+
+  await sendOTP(email);
+
+  return { message: 'If email exists, OTP sent for password reset.' };
+};
+
+export const resetPasswordWithOtp = async (
+  email: string,
+  otp: string,
+  newPassword: string
+) => {
+  const otpRecord = await OTP.findOne({ email, otp });
+  if (!otpRecord) throw new Error('Invalid or expired OTP');
+  if (otpRecord.attempts >= 5) throw new Error('Too many attempts');
+
+  const user = await User.findOne({ email });
+  if (!user) throw new Error('User not found');
+
+  user.password = newPassword;
+  await user.save();
+
+  // Clean up OTP
+  await OTP.deleteOne({ email });
+
+  return { message: 'Password reset successfully' };
+};
+
+// Delete account (permanent)
+export const deleteUserAccount = async (
+  userId: string,
+  password: string
+) => {
+  const user = await User.findById(userId);
+  if (!user) throw new Error('User not found');
+
+  const isMatch = await user.comparePassword(password);
+  if (!isMatch) throw new Error('Password confirmation failed');
+
+  if (user.profile) {
+    const publicId = `profiles/${user._id}`;
+    await cloudinary.uploader.destroy(publicId).catch(() => {
+    });
+  }
+
+  await User.deleteOne({ _id: userId });
+
+  return { message: 'Account deleted permanently' };
 };

@@ -1,4 +1,3 @@
-
 import type { Request, Response } from 'express';
 import { asyncHandler } from '../utils/async.handler.js';
 import { apiResponse } from '../utils/api.response.js';
@@ -44,9 +43,42 @@ export const createProduct = asyncHandler(async (req: Request<{}, {}, CreateProd
 });
 
 export const getProducts = asyncHandler(async (req: Request, res: Response) => {
-  const products = await getAllProductsService();
+  const {
+    search,
+    category,
+    brand,
+    minPrice,
+    maxPrice,
+    sort = 'newest',
+    page = '1',
+    limit = '20',
+  } = req.query;
 
-  return apiResponse(res, 200, 'success', 'Products retrieved successfully', products);
+  const queryParams: Parameters<typeof getAllProductsService>[0] = {
+    sort: sort as 'relevance' | 'price_low' | 'price_high' | 'newest' | 'best_selling',
+    page: Number(page),
+    limit: Number(limit),
+  };
+
+  if (search) queryParams.search = String(search);
+  if (minPrice) queryParams.minPrice = Number(minPrice);
+  if (maxPrice) queryParams.maxPrice = Number(maxPrice);
+
+  if (category) {
+    queryParams.category = Array.isArray(category)
+      ? category.map(String)
+      : [String(category)];
+  }
+
+  if (brand) {
+    queryParams.brand = Array.isArray(brand)
+      ? brand.map(String)
+      : [String(brand)];
+  }
+
+  const result = await getAllProductsService(queryParams);
+
+  return apiResponse(res, 200, 'success', 'Products retrieved successfully', result);
 });
 
 export const getProduct = asyncHandler(async (req: Request<ProductParams, {}, {}>, res: Response) => {

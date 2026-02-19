@@ -1,4 +1,3 @@
-
 import nodemailer from 'nodemailer';
 import config from '../config/config.js';
 import logger from './logger.js';

@@ -6,7 +6,11 @@ export {
     verifyOTP,
     loginWithPassword,
     refreshAccessToken,
-    logout
+    logout,
+    updateUserProfile,
+    forgotPassword,
+    resetPasswordWithOtp,
+    deleteUserAccount
 } from './auth.service.js';
 
 export { 

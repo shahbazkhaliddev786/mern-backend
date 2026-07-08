@@ -1,7 +1,7 @@
-import { body } from "express-validator";
+import {param} from 'express-validator';
 
 export const IdValidation = [
-  body('id') 
+  param('id') 
     .isMongoId()
-    .withMessage('Invalid brand ID'),
+    .withMessage('Invalid ID'),
 ];

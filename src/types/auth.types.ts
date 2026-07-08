@@ -5,6 +5,12 @@ export interface RegisterBody {
   password: string;
 }
 
+export interface UserType {
+  _id: string;
+  name?: string;
+  email?: string;
+}
+
 export interface ResendOtpBody {
   email: string;
 }

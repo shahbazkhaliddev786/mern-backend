@@ -21,3 +21,19 @@ export {
 export {
     cartRouter
 } from './cart.routes.js';
+
+export {
+    adminCartRouter
+} from './admin-cart.routes.js';
+
+export {
+    adminOrderRouter
+} from './admin-order.routes.js';
+
+export {
+    adminUserRouter
+} from './admin-user.routes.js';
+
+export {
+    adminDashboardRouter
+} from './admin-dashboard.routes.js';

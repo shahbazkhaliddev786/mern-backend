@@ -28,6 +28,21 @@ export default async function expressLoader(app: Express) {
 //   // 6. Validations on routes to ensure data 
 //   // integrity and prevent injection attacks and XXS attacks
 
+
+/*
+//    How cast error works in expressjs?
+
+In Express, the order you define your routes matters.
+Express checks routes from top to bottom and uses the first one that matches.
+
+Why does this matter?
+If you put /:orderId before /my-orders, then /my-orders will be treated as an orderId (which is wrong).
+If you put /my-orders before /:orderId, Express will correctly match /my-orders first.
+
+orderRouter.get('/my-orders', authMiddleware, getMyOrdersController);
+orderRouter.get('/:orderId', authMiddleware, getOrder);
+*/
+
   app.use(
     helmet({
       contentSecurityPolicy: false,

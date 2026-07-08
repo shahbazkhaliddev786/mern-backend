@@ -1,3 +1,4 @@
+import type { UserType } from './auth.types.js'; 
 import 'express-session';
 
 declare module 'express-session' {
@@ -8,5 +9,13 @@ declare module 'express-session' {
         quantity: number;
       }>;
     };
+  }
+}
+
+
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    user?: UserType;
   }
 }

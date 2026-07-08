@@ -15,12 +15,12 @@ import {
 
  import { validate } from '../middlewares/validation.middleware.js';
 
-import { authMiddleware } from '../middlewares/auth.middleware.js';
+import { optionalAuthMiddleware } from '../middlewares/auth.middleware.js';
 
 export const cartRouter = Router();
 
-cartRouter.get('/', authMiddleware, getUserCart);                    
-cartRouter.post('/', addToCartValidation, validate, addItemToCart);                 
-cartRouter.patch('/items/:productId', authMiddleware, updateCartItemValidation, validate, updateItemInCart); 
-cartRouter.delete('/items/:productId', authMiddleware, removeFromCartValidation, validate, removeItemFromCart); 
-cartRouter.delete('/', authMiddleware, clearUserCart);           
+cartRouter.get('/', optionalAuthMiddleware, getUserCart);
+cartRouter.post('/', optionalAuthMiddleware, addToCartValidation, validate, addItemToCart);
+cartRouter.patch('/items/:productId', optionalAuthMiddleware, updateCartItemValidation, validate, updateItemInCart);
+cartRouter.delete('/items/:productId', optionalAuthMiddleware, removeFromCartValidation, validate, removeItemFromCart);
+cartRouter.delete('/', optionalAuthMiddleware, clearUserCart);

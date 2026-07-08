@@ -29,6 +29,7 @@ export {
   resendOTP,
   verifyOtp,
   login,
+  getProfile,
   refreshToken,
   logoutUser,
   updateProfile,
@@ -46,9 +47,37 @@ export {
 } from "./cart.controller.js"
 
 export {
+  getAllCarts,
+  getCartByUserId,
+  adminUpdateCartItem,
+  adminRemoveCartItem,
+  adminClearCart
+} from "./admin-cart.controller.js"
+
+export {
   createOrder,
   updateOrder,
   deleteOrderCtrl,
   getOrders,
   getOrder,
+  getMyOrdersController
 } from './order.controller.js';
+
+export {
+  getAllOrders,
+  getAdminOrder,
+  adminUpdateOrderStatus,
+  adminUpdateOrderDetails,
+  adminDeleteOrder
+} from './admin-order.controller.js';
+
+export {
+  getAllUsers,
+  getAdminUser,
+  adminUpdateUserRole,
+  adminDeleteUser
+} from './admin-user.controller.js';
+
+export {
+  getDashboardSummary
+} from './admin-dashboard.controller.js';

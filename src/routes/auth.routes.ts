@@ -4,6 +4,7 @@ import {
   register,
   resendOTP,
   verifyOtp,
+  getProfile,
   login,
   refreshToken,
   logoutUser,
@@ -28,9 +29,10 @@ import { authMiddleware } from '../middlewares/auth.middleware.js';
 
 export const authRouter = Router();
 
-authRouter.post('/register', registerValidation, validate, uploadSingleFile, register);
+authRouter.post('/register', uploadSingleFile, registerValidation, validate, register);
 authRouter.post('/resend-otp', resendOtpValidation, validate, rateLimiterMiddleware, resendOTP);
 authRouter.post('/verify-otp', verifyOtpValidation, validate, verifyOtp);
+authRouter.get('/profile', authMiddleware, getProfile);
 authRouter.post('/login', loginValidation, validate, rateLimiterMiddleware, login);
 authRouter.post('/refresh-token', refreshTokenValidation, validate, rateLimiterMiddleware, refreshToken);
 authRouter.post('/logout', logoutUser);

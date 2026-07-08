@@ -26,7 +26,7 @@ export const registerUser = async (
 
   await user.save();
 
-  await sendOTP(user.email);
+  // await sendOTP(user.email);
 
   return { message: 'Registration successful. OTP sent to email.' };
 };
@@ -67,7 +67,7 @@ export const verifyOTP = async (email: string, otp: string) => {
   user.refreshTokens.push(hashedRefresh);
   await user.save();
 
-  return { accessToken, refreshToken };
+  return { accessToken, refreshToken, user };
 };
 
 export const loginWithPassword = async (email: string, password: string) => {
@@ -113,6 +113,12 @@ export const refreshAccessToken = async (refreshToken: string) => {
   };
 };
 
+// profile
+export const getUserById = async (userId: string) => {
+  return await User.findById(userId);
+};
+
+// logout
 export const logout = async (refreshToken: string) => {
   const hashed = hashRefreshToken(refreshToken);
   await User.updateOne({ refreshTokens: hashed }, { $pull: { refreshTokens: hashed } });

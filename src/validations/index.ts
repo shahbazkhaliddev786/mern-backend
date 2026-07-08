@@ -21,6 +21,23 @@ export {
 } from './cart.validation.js';
 
 export {
+    userIdParamValidation,
+    cartItemParamValidation,
+    adminUpdateCartItemValidation
+} from './admin-cart.validations.js';
+
+export {
+    orderIdParamValidation,
+    adminUpdateOrderStatusValidation,
+    adminUpdateOrderDetailsValidation
+} from './admin-order.validations.js';
+
+export {
+    adminUserIdParamValidation,
+    adminUpdateUserRoleValidation
+} from './admin-user.validations.js';
+
+export {
     registerValidation,
     loginValidation,
     resendOtpValidation,

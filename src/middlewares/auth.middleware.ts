@@ -36,6 +36,7 @@ export const authMiddleware = async (
       email: user.email,
       name: user.name,
       profile: user.profile,
+      role: user.role,
     };
 
     next();
@@ -52,4 +53,24 @@ export const authMiddleware = async (
 
     return apiResponse(res, 401, 'error', 'Authentication failed');
   }
+};
+
+/**
+ * Like authMiddleware, but allows guests through instead of rejecting them.
+ * No Authorization header → proceeds as a guest (no req.user attached).
+ * A present-but-invalid/expired token is still rejected with 401 — a broken
+ * token should not be silently downgraded to a guest request.
+ */
+export const optionalAuthMiddleware = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return next();
+  }
+
+  return authMiddleware(req, res, next);
 };

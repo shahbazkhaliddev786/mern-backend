@@ -30,8 +30,18 @@ const getSessionCart = (req: Request): SessionCart => {
   return session.cart;
 };
 
+// Shared populate spec for a cart's items — reused by admin-cart.service.ts
+export const CART_ITEM_POPULATE = {
+  path: 'items.product',
+  select: 'name price images stock',
+  populate: [
+    { path: 'category', select: 'name' },
+    { path: 'brand', select: 'name' },
+  ],
+};
+
 // Calculate totals
-const calculateCartTotals = async (items: any[]): Promise<{ itemsCount: number; subtotal: number }> => {
+export const calculateCartTotals = async (items: any[]): Promise<{ itemsCount: number; subtotal: number }> => {
   let itemsCount = 0;
   let subtotal = 0;
 
@@ -56,6 +66,32 @@ const calculateCartTotals = async (items: any[]): Promise<{ itemsCount: number; 
   };
 };
 
+// Guest (session) cart items are only ever stored as { product: <id>, quantity }.
+// Populate them with the same product fields the DB-backed cart returns, so
+// every cart UI (which expects a full Product on item.product) works identically
+// for guests and logged-in users.
+const populateGuestCartItems = async (items: CartItem[]): Promise<any[]> => {
+  if (items.length === 0) return [];
+
+  const productIds = items.map((item) => item.product);
+  const products = await Product.find({ _id: { $in: productIds } })
+    .select('name price images stock')
+    .populate([
+      { path: 'category', select: 'name' },
+      { path: 'brand', select: 'name' },
+    ]);
+
+  const productsById = new Map(products.map((product) => [product._id.toString(), product]));
+
+  return items
+    .filter((item) => productsById.has(item.product))
+    .map((item) => ({
+      _id: item.product,
+      product: productsById.get(item.product),
+      quantity: item.quantity,
+    }));
+};
+
 export const getCart = async (req: Request): Promise<any> => {
   let rawCart: any;
   let items: any[] = [];
@@ -63,14 +99,7 @@ export const getCart = async (req: Request): Promise<any> => {
   const user: any = (req as any).user;
 
   if (user) {
-    rawCart = await Cart.findOne({ user: user._id }).populate({
-      path: 'items.product',
-      select: 'name price images stock',
-      populate: [
-        { path: 'category', select: 'name' },
-        { path: 'brand', select: 'name' },
-      ],
-    });
+    rawCart = await Cart.findOne({ user: user._id }).populate(CART_ITEM_POPULATE);
 
     if (!rawCart) {
       rawCart = await Cart.create({ user: user._id, items: [] });
@@ -79,7 +108,7 @@ export const getCart = async (req: Request): Promise<any> => {
     items = rawCart.items || [];
   } else {
     rawCart = getSessionCart(req);
-    items = rawCart.items || [];
+    items = await populateGuestCartItems(rawCart.items || []);
   }
 
   const totals = await calculateCartTotals(items);
@@ -88,6 +117,7 @@ export const getCart = async (req: Request): Promise<any> => {
 
   return {
     ...cartData,
+    items,
     itemsCount: totals.itemsCount,
     subtotal: totals.subtotal,
   };

@@ -14,6 +14,6 @@ export const createOrderValidation = [
 
 export const updateOrderStatusValidation = [
   body('status')
-    .isIn(['pending', 'dispatched', 'completed'])
-    .withMessage('Status must be pending, dispatched, or completed'),
+    .isIn(['pending', 'processing', 'shipped', 'delivered', 'cancelled'])
+    .withMessage('Status must be pending, processing, shipped, delivered, or cancelled'),
 ];

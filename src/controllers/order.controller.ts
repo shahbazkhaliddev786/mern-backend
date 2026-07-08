@@ -7,6 +7,7 @@ import {
   deleteOrder,
   getUserOrders,
   getOrderById,
+  getMyOrders
 } from '../services/index.js';
 
 import type {   
@@ -64,5 +65,24 @@ export const getOrder = asyncHandler(async (req: Request<OrderParams, {}, {}>, r
 
   const order = await getOrderById(orderId);
 
+  const requestingUser = (req as any).user;
+  const isOwner = (order.user as any)?._id?.toString() === requestingUser._id.toString();
+  const isAdmin = requestingUser.role === 'admin';
+
+  if (!isOwner && !isAdmin) {
+    return apiResponse(res, 403, 'error', 'You do not have permission to view this order');
+  }
+
   return apiResponse(res, 200, 'success', 'Order retrieved', order);
+});
+
+export const getMyOrdersController = asyncHandler(async (req: Request, res: Response) => {
+
+    const userId = req?.user?._id;
+    if (!userId) {
+      return res.status(401).json({ status: 'fail', message: 'Unauthorized' });
+    }
+    const orders = await getMyOrders(userId.toString());
+    res.json({ status: 'success', data: orders });
+  
 });

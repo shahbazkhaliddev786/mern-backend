@@ -4,12 +4,14 @@ import config from '../config/config.js';
 const allowedOrigins = [
   'https://aljostore.com',
   'https://www.aljostore.com',
+  'http://localhost:5000'
 ];
 
 
 if (config.ENV === 'development') {
   allowedOrigins.push('http://localhost:3000');
   allowedOrigins.push('http://localhost:5173');
+  allowedOrigins.push('http://localhost:5000');
 }
 
 export const corsMiddleware = cors({

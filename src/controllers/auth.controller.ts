@@ -8,6 +8,7 @@ import {
   verifyOTP,
   loginWithPassword,
   refreshAccessToken,
+  getUserById,
   logout,
   updateUserProfile,
   forgotPassword,
@@ -97,7 +98,21 @@ export const resendOTP = asyncHandler(async (req: Request<{},{},ResendOtpBody>, 
 export const verifyOtp = asyncHandler(async (req: Request<{},{},VerifyOtpBody>, res: Response) => {
   const { email, otp } = req.body;
 
-  const tokens = await verifyOTP(email.toLowerCase().trim(), otp);
+  const { user, ...tokens } = await verifyOTP(email.toLowerCase().trim(), otp);
+
+  (req as any).user = user;
+
+  // Merge guest cart items into the newly-verified user's cart
+  try {
+    await mergeGuestCartOnLogin(req);
+    logger.info('Guest cart merged successfully after OTP verification', { userId: user._id });
+  } catch (mergeError: any) {
+    logger.warn('Failed to merge guest cart after OTP verification', {
+      userId: user._id,
+      error: mergeError.message,
+    });
+    // We don't want to fail verification because of cart merge — just log it
+  }
 
   logger.info('OTP verified successfully', { email });
 
@@ -141,6 +156,7 @@ export const login = asyncHandler(async (req: Request<{},{},LoginBody>, res: Res
       name: user.name,
       email: user.email,
       profile: user.profile,
+      role: user.role,
     },
   });
 });
@@ -158,6 +174,27 @@ export const refreshToken = asyncHandler(async (req: Request<{},{},RefreshTokenB
   logger.info('Access token refreshed');
 
   return apiResponse(res, 200, 'success', 'Token refreshed successfully', tokens);
+});
+
+// Get user profile
+export const getProfile = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).user._id;
+
+  const user = await getUserById(userId);
+
+  if (!user) {
+    return apiResponse(res, 404, 'error', 'User not found');
+  }
+
+  logger.info('User profile retrieved', { userId });
+
+  return apiResponse(res, 200, 'success', 'User profile retrieved successfully', {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    profile: user.profile,
+    role: user.role,
+  });
 });
 
 // Logout (invalidate refresh token)

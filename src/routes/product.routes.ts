@@ -17,6 +17,7 @@ import {
 
 import { validate } from '../middlewares/validation.middleware.js';
 import { requireRole } from '../middlewares/admin.js';
+import { authMiddleware } from '../middlewares/auth.middleware.js';
 
 export const productRouter = Router();
 
@@ -24,10 +25,11 @@ export const productRouter = Router();
 // Multipart form-data with field "files" for images (up to 10)
 productRouter.post(
   '/',
+  authMiddleware,
+  requireRole(['admin']),
   uploadMultipleFiles,
   createProductValidation,
   validate,
-  requireRole(['admin']),
   createProduct
 );
 
@@ -39,11 +41,12 @@ productRouter
   .route('/:id')
   .get(IdValidation, validate, getProduct)
   .patch(
+    authMiddleware,
+    requireRole(['admin']),
     uploadMultipleFiles,
     IdValidation,
     updateProductValidation,
     validate,
-    requireRole(['admin']),
     updateProduct
   )
-  .delete(IdValidation, validate, requireRole(['admin']), deleteProduct);
+  .delete(authMiddleware, requireRole(['admin']), IdValidation, validate, deleteProduct);

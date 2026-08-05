@@ -41,6 +41,8 @@
     "moduleDetection": "force",
     "skipLibCheck": true,
     "typeRoots": ["./node_modules/@types", "./src/types"],
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
   },
   "include": [
     "src/**/*",

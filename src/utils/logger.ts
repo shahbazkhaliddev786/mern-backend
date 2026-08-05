@@ -48,15 +48,12 @@ const consoleLogFormat = format.printf((info) => {
 
 
 const consoleTransport = () => {
-  if (config.ENV === EApplicationEnvironment.DEVELOPMENT) {
-    return [
-      new transports.Console({
-        level: "info",
-        format: format.combine(format.timestamp(), consoleLogFormat),
-      }),
-    ];
-  }
-  return [];
+  return [
+    new transports.Console({
+      level: "info",
+      format: format.combine(format.timestamp(), consoleLogFormat),
+    }),
+  ];
 };
 
 // --------------------
@@ -89,27 +86,38 @@ const fileLogFormat = format.printf(({ level, message, timestamp, ...meta }) => 
   );
 });
 
-const fileTransport = () => [
-  new transports.File({
-    filename: path.join(__dirname, "../../logs", `${config.ENV}.log`),
-    level: "info",
-    format: format.combine(format.timestamp(), fileLogFormat),
-  }),
-];
+const fileTransport = () => {
+  // Vercel has a read-only filesystem (except /tmp), so we cannot write to logs/
+  if (process.env.VERCEL || config.ENV === "production") {
+    return [];
+  }
+  return [
+    new transports.File({
+      filename: path.join(__dirname, "../../logs", `${config.ENV}.log`),
+      level: "info",
+      format: format.combine(format.timestamp(), fileLogFormat),
+    }),
+  ];
+};
 
 // --------------------
 // MongoDB transport
 // --------------------
-const mongoTransport = (): MongoDBTransportInstance[] => [
-  new transports.MongoDB({
-    level: "info",
-    db: config.DATABASE_URL as string,
-    collection: "application-logs",
-    metaKey: "meta",
-    expireAfterSeconds: 3600 * 24 * 30, // 30 days
-    options: { useUnifiedTopology: true },
-  }),
-];
+const mongoTransport = (): MongoDBTransportInstance[] => {
+  if (process.env.VERCEL || !config.DATABASE_URL) {
+    return [];
+  }
+  return [
+    new transports.MongoDB({
+      level: "info",
+      db: config.DATABASE_URL as string,
+      collection: "application-logs",
+      metaKey: "meta",
+      expireAfterSeconds: 3600 * 24 * 30, // 30 days
+      options: { useUnifiedTopology: true },
+    }),
+  ];
+};
 
 // --------------------
 // Logger instance

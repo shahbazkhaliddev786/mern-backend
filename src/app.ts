@@ -4,3 +4,5 @@ export function createApp() {
   const app = express();
   return app;
 }
+
+export default createApp();

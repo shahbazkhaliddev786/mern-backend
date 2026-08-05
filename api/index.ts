@@ -9,6 +9,10 @@ export default async function handler(req: any, res: any) {
   try {
     if (!isInitialized) {
       await connectDB();
+      // Add a guaranteed root route before loaders to prevent "Cannot GET /"
+      app.get("/", (req, res) => {
+        res.status(200).json({ status: "ok", message: "Vercel Backend is live!" });
+      });
       await loaders({ app });
       isInitialized = true;
     }

@@ -43,6 +43,7 @@ orderRouter.get('/my-orders', authMiddleware, getMyOrdersController);
 orderRouter.get('/:orderId', authMiddleware, getOrder);
 */
 
+  // @ts-ignore - helmet typings mismatch with ESM NodeNext
   app.use(
     helmet({
       contentSecurityPolicy: false,
@@ -75,6 +76,7 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
       secret: process.env.SESSION_SECRET || 'fallback-secret-change-in-production',
       resave: false,
       saveUninitialized: true,
+      // @ts-ignore - connect-mongo typings mismatch with ESM NodeNext
       store: MongoStore.create({
         mongoUrl: config.DATABASE_URL,
       }),

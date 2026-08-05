@@ -1,16 +1,19 @@
 import { corsMiddleware } from '../middlewares/cors.js'
 import express from "express";
 import type { Express } from "express";
-import helmet from "helmet";
+import helmetPkg from "helmet";
 import cookieParser from "cookie-parser";
 import path from "path";
 import globalErrorHandler from "../middlewares/global-error.handler.js";
 import { fileURLToPath } from "url";
 import session from 'express-session';
-import MongoStore from 'connect-mongo';
+import MongoStorePkg from 'connect-mongo';
 import config from "../config/config.js";
 import { handleStripeWebhook } from "../services/order.service.js";
 import logger from "../utils/logger.js";
+
+const helmet = helmetPkg as any;
+const MongoStore = MongoStorePkg as any;
 
 // __dirname replacement in ESM
 const __filename = fileURLToPath(import.meta.url);

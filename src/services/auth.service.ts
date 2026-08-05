@@ -26,7 +26,7 @@ export const registerUser = async (
 
   await user.save();
 
-  // await sendOTP(user.email);
+  await sendOTP(user.email);
 
   return { message: 'Registration successful. OTP sent to email.' };
 };

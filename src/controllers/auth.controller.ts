@@ -116,7 +116,17 @@ export const verifyOtp = asyncHandler(async (req: Request<{},{},VerifyOtpBody>, 
 
   logger.info('OTP verified successfully', { email });
 
-  return apiResponse(res, 200, 'success', 'Email verified successfully', tokens);
+  return apiResponse(res, 200, 'success', 'Email verified successfully', {
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    user: {
+      id: user._id,
+      name: user.name,
+      email: user.email,
+      profile: user.profile,
+      role: user.role,
+    },
+  });
 });
 
 // Login with password

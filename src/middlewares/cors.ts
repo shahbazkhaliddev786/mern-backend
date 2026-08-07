@@ -4,7 +4,8 @@ import config from '../config/config.js';
 const allowedOrigins = [
   'https://aljostore.com',
   'https://www.aljostore.com',
-  'http://localhost:5000'
+  'http://localhost:5000',
+  'https://mern-frontend-seven-iota.vercel.app'
 ];
 
 

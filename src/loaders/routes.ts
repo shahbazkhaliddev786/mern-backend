@@ -33,8 +33,15 @@ export default async function routesLoader(app: Express) {
   app.use('/api/v1/admin/dashboard', adminDashboardRouter);
   app.use("/api/v1/orders", orderRouter);
 
-  // 404 handler for undefined API routes
-  app.use("/api/v1", (_, res) => {
+  // Universal catch-all for unmatched routes (handles root URL and 404s)
+  app.use((req, res) => {
+    if (req.path === "/" || req.path === "/api/index" || req.path === "/api/index.ts" || req.path === "") {
+      return res.status(200).json({
+        status: "success",
+        message: "Welcome to the MERN eCommerce API! The backend is live."
+      });
+    }
+
     res.status(404).json({
       status: "error",
       message: "Route not found",

@@ -17,7 +17,7 @@ import orderRouter from "../routes/order.routes.js";
 export default async function routesLoader(app: Express) {
   // Root endpoint
   app.get("/", (_, res) => {
-    res.json({ message: "Welcome to the API" });
+    res.status(200).json({ status: "success", message: "Welcome to the MERN eCommerce API! The backend is live." });
   });
 
   // API versioned routes
@@ -33,16 +33,8 @@ export default async function routesLoader(app: Express) {
   app.use('/api/v1/admin/dashboard', adminDashboardRouter);
   app.use("/api/v1/orders", orderRouter);
 
-  // Catch-all handler for undefined routes (including root if nothing else matches)
-  app.use("*", (req, res) => {
-    // If it's the root URL, give a friendly welcome message instead of an error
-    if (req.path === "/" || req.path === "/api/index") {
-      return res.status(200).json({
-        status: "success",
-        message: "Welcome to the MERN eCommerce API! The backend is fully deployed and live on Vercel."
-      });
-    }
-
+  // 404 handler for undefined API routes
+  app.use("/api/v1", (_, res) => {
     res.status(404).json({
       status: "error",
       message: "Route not found",

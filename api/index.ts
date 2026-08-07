@@ -9,13 +9,6 @@ export default async function handler(req: any, res: any) {
   try {
     if (!isInitialized) {
       await connectDB();
-      // Intercept root and vercel rewritten paths
-      app.use((req, res, next) => {
-        if (req.path === "/" || req.path === "/api/index" || req.path === "/api/index.ts" || req.path === "") {
-          return res.status(200).json({ status: "ok", message: "Welcome to the MERN eCommerce API! The backend is live." });
-        }
-        next();
-      });
       await loaders({ app });
       isInitialized = true;
     }

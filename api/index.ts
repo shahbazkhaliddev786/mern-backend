@@ -5,6 +5,15 @@ import loaders from "../src/loaders/index.js";
 const app = createApp();
 let isInitialized = false;
 
+// Disable Vercel's built-in body parser so the raw body stream is
+// preserved for the Stripe webhook signature verification.
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
+
 export default async function handler(req: any, res: any) {
   try {
     if (!isInitialized) {

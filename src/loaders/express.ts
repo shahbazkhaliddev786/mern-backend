@@ -53,7 +53,14 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
       const sig = req.headers['stripe-signature'] as string;
 
       try {
-        await handleStripeWebhook(req.body, sig);
+        // On Vercel, the body may arrive pre-parsed as an object even with
+        // bodyParser disabled (edge cases / cold starts). If so, convert it
+        // back to a Buffer so Stripe signature verification works.
+        const rawBody = Buffer.isBuffer(req.body)
+          ? req.body
+          : Buffer.from(JSON.stringify(req.body));
+
+        await handleStripeWebhook(rawBody, sig);
         res.json({ received: true });
       } catch (err: any) {
         logger.error('Webhook error', { error: err.message });
@@ -61,6 +68,7 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
       }
     }
   );
+
 
   app.use(corsMiddleware);
   app.use(express.json({ limit: "15kb" }));

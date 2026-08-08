@@ -11,7 +11,6 @@ const allowedOrigins = [
 
 if (config.ENV === 'development') {
   allowedOrigins.push('http://localhost:3000');
-  allowedOrigins.push('http://localhost:5173');
   allowedOrigins.push('http://localhost:5000');
 }
 

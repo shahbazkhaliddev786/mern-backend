@@ -18,5 +18,5 @@ export default {
     PASSWORD: process.env.PASSWORD || "",
     STRIPE_SECRET: process.env.STRIPE_SECRET || "",
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
-    FRONTEND_URL: process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? "https://mern-frontend-seven-iota.vercel.app" : "http://localhost:5173"),
+    FRONTEND_URL: process.env.FRONTEND_URL || "https://mern-frontend-seven-iota.vercel.app",
 }

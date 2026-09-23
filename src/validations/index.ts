@@ -55,4 +55,4 @@ export {
 export {
     createProductValidation,
     updateProductValidation,
-} from './product.validations.js';
+} from './product.validations.js';

@@ -10,4 +10,4 @@ const upload = multer({ storage });
 export const uploadMultipleFiles = upload.array("files", 10);
 
 // For single file upload (e.g., profile picture)
-export const uploadSingleFile = upload.single("profile");
+export const uploadSingleFile = upload.single("profile");

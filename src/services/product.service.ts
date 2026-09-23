@@ -4,6 +4,7 @@ import cloudinary from '../utils/cloudinary.js';
 import bufferGenerator from '../utils/buffer.generator.js';
 import logger from '../utils/logger.js';
 
+
 export const createProductService = async (
   name: string,
   description: string,

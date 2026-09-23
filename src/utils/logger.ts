@@ -1,3 +1,5 @@
+import dns from "dns";
+
 import util from "util";
 import "winston-mongodb";
 import { createLogger, format, transports } from "winston";
@@ -14,6 +16,17 @@ const __dirname = path.dirname(__filename);
 
 // Enable source map support for stack traces
 sourceMapSupport.install();
+
+// Only override Node's DNS resolver in safe scenarios:
+// - Explicitly enabled via `FORCE_NODE_DNS_SERVERS=true`, OR
+// - Running on Windows in local development (`config.ENV === 'development'`)
+// Never force in Vercel/production environments.
+try {
+  const shouldForce = process.env.FORCE_NODE_DNS_SERVERS === 'true' || (process.platform === 'win32' && config.ENV === 'development')
+  if (!process.env.VERCEL && shouldForce) {
+    dns.setServers(["8.8.8.8", "1.1.1.1"])
+  }
+} catch (e) {}
 
 // --------------------
 // Helper to color log levels

@@ -1,4 +1,3 @@
-
 export interface CreateProductBody {
   name: string;
   description: string;
@@ -16,6 +15,5 @@ export interface UpdateProductBody {
   category?: string;
   brand?: string;
 }
-
 
 export type ProductParams = Record<string, string>;

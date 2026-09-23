@@ -5,6 +5,7 @@ import helmetPkg from "helmet";
 import cookieParser from "cookie-parser";
 import session from 'express-session';
 import MongoStorePkg from 'connect-mongo';
+import mongoose from "mongoose";
 import config from "../config/config.js";
 import { handleStripeWebhook } from "../services/order.service.js";
 import logger from "../utils/logger.js";
@@ -82,7 +83,7 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
       saveUninitialized: true,
       // @ts-ignore - connect-mongo typings mismatch with ESM NodeNext
       store: MongoStore.create({
-        mongoUrl: config.DATABASE_URL,
+        client: mongoose.connection.getClient(),
       }),
       cookie: {
         httpOnly: true,

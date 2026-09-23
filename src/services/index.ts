@@ -55,4 +55,4 @@ export {
 
 export {
     getDashboardSummaryService
-} from './admin-dashboard.service.js';
+} from './admin-dashboard.service.js';

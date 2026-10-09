@@ -1,6 +1,8 @@
 import { Types } from 'mongoose';
 import { Order, Product, User } from '../models/index.js';
 import { getOrderById } from './order.service.js';
+import { computeOrderTotal } from './pricing.service.js';
+import logger from '../utils/logger.js';
 
 const USER_POPULATE = { path: 'user', select: 'name email' };
 
@@ -132,16 +134,48 @@ export const adminUpdateOrderDetailsService = async (
     order.items = resolvedItems;
   }
 
-  const subtotal = order.items.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
+  // Subtotal is always recomputed from the (server-resolved) line items.
+  // tax/shipping are an explicit, validated admin override (the request
+  // validation enforces non-negative numbers); when omitted they keep the
+  // order's current values. The total formula + rounding come from the shared
+  // pricing module so admin/customer/agent money all agree.
+  const subtotal = order.items.reduce(
+    (sum: number, item: any) => sum + item.price * item.quantity,
+    0
+  );
   const tax = updates.tax !== undefined ? Number(updates.tax) : order.tax;
   const shipping = updates.shipping !== undefined ? Number(updates.shipping) : order.shipping;
 
-  order.subtotal = subtotal;
-  order.tax = tax;
-  order.shipping = shipping;
-  order.total = subtotal + tax + shipping;
+  const before = { subtotal: order.subtotal, tax: order.tax, shipping: order.shipping, total: order.total };
+  const money = computeOrderTotal(subtotal, tax, shipping);
 
-  await order.save();
+  order.subtotal = money.subtotal;
+  order.tax = money.tax;
+  order.shipping = money.shipping;
+  order.total = money.total;
+
+  // Validate only the paths this edit actually changed. A full-document
+  // re-validation would reject legacy orders that have an incomplete
+  // shippingAddress on file, blocking even a tax/shipping-only change.
+  await order.save({ validateModifiedOnly: true });
+
+  // Audit: admin edits to order money are security-relevant write actions
+  // (observability.md §4). Flat scalar meta (matches the codebase's logging
+  // pattern) so the before/after totals are traceable.
+  logger.info('ADMIN_ORDER_DETAILS_UPDATED', {
+    orderId,
+    taxOverridden: updates.tax !== undefined,
+    shippingOverridden: updates.shipping !== undefined,
+    itemsReplaced: updates.items !== undefined,
+    subtotalBefore: before.subtotal,
+    subtotalAfter: money.subtotal,
+    taxBefore: before.tax,
+    taxAfter: money.tax,
+    shippingBefore: before.shipping,
+    shippingAfter: money.shipping,
+    totalBefore: before.total,
+    totalAfter: money.total,
+  });
 
   return getOrderById(orderId);
 };

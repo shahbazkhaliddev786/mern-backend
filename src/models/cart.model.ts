@@ -38,7 +38,7 @@ const CartSchema: Schema = new Schema(
   { timestamps: true }
 );
 
-// Compound index for faster queries
-CartSchema.index({ user: 1 });
+// `user` is already indexed via `unique: true` on the field above; a separate
+// CartSchema.index({ user: 1 }) would duplicate it (and warned at boot).
 
 export const Cart = mongoose.model<ICart>('Cart', CartSchema);

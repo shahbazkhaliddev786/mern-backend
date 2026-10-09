@@ -108,9 +108,10 @@ const OrderSchema: Schema = new Schema(
   { timestamps: true }
 );
 
-// Indexes (optimized for dashboard queries)
+// Indexes (optimized for dashboard queries).
+// stripeSessionId is already indexed via `unique: true` on the field above —
+// declaring it again here caused a duplicate-index warning, so it's omitted.
 OrderSchema.index({ user: 1, createdAt: -1 });
-OrderSchema.index({ stripeSessionId: 1 });
 OrderSchema.index({ status: 1 });
 
 export const Order = mongoose.model<IOrder>('Order', OrderSchema);

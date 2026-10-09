@@ -29,7 +29,7 @@ import type {
   ResetPasswordWithOtpBody,
   DeleteAccountBody
 } from '../types/index.js'
-import { mergeGuestCartOnLogin } from '../services/cart.service.js';
+import { mergeGuestCartOnLogin } from '../services/guest-cart.service.js';
 
 // register
 export const register = asyncHandler(async (req: Request<{},{},RegisterBody>, res: Response) => {
@@ -100,11 +100,9 @@ export const verifyOtp = asyncHandler(async (req: Request<{},{},VerifyOtpBody>, 
 
   const { user, ...tokens } = await verifyOTP(email.toLowerCase().trim(), otp);
 
-  (req as any).user = user;
-
   // Merge guest cart items into the newly-verified user's cart
   try {
-    await mergeGuestCartOnLogin(req);
+    await mergeGuestCartOnLogin(user._id.toString(), req.session);
     logger.info('Guest cart merged successfully after OTP verification', { userId: user._id });
   } catch (mergeError: any) {
     logger.warn('Failed to merge guest cart after OTP verification', {
@@ -138,15 +136,13 @@ export const login = asyncHandler(async (req: Request<{},{},LoginBody>, res: Res
     password
   );
 
-  (req as any).user = user;
-
   if (!user) {
     return apiResponse(res, 403, 'error', 'User not found');
   }
 
   //Merge guest cart items into user's cart
   try {
-    await mergeGuestCartOnLogin(req);
+    await mergeGuestCartOnLogin(user._id.toString(), req.session);
     logger.info('Guest cart merged successfully after login', { userId: user._id });
   } catch (mergeError: any) {
     logger.warn('Failed to merge guest cart after login', {

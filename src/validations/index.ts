@@ -15,9 +15,7 @@ export {
 } from './category.validations.js';
 
 export {
-    addToCartValidation,
-    updateCartItemValidation,
-    removeFromCartValidation
+    productIdParamValidation
 } from './cart.validation.js';
 
 export {

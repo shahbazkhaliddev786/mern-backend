@@ -16,7 +16,8 @@ import type {
 } from '../types/index.js';
 
 export const createOrder = asyncHandler(async (req: Request, res: Response) => {
-  const { sessionId, url } = await createCheckoutSession(req);
+  const userId = (req as any).user._id.toString();
+  const { sessionId, url } = await createCheckoutSession(userId, req.body.shippingAddress);
 
   return apiResponse(res, 200, 'success', 'Checkout session created', {
     sessionId,

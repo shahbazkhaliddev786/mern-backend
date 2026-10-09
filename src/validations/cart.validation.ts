@@ -1,25 +1,8 @@
-import { body, param } from 'express-validator';
+import { param } from 'express-validator';
 
-export const addToCartValidation = [
-  body('productId')
-    .isMongoId()
-    .withMessage('Valid product ID is required'),
-  body('quantity')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Quantity must be a positive integer'),
-];
-
-export const updateCartItemValidation = [
-  param('productId')
-    .isMongoId()
-    .withMessage('Valid product ID is required'),
-  body('quantity')
-    .isInt({ min: 1 })
-    .withMessage('Quantity must be at least 1'),
-];
-
-export const removeFromCartValidation = [
+// Cart request bodies are validated with zod (cart.schema.ts), which the agent's
+// cart tools share; only the :productId route param is checked here.
+export const productIdParamValidation = [
   param('productId')
     .isMongoId()
     .withMessage('Valid product ID is required'),

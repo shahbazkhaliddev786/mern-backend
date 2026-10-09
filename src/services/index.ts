@@ -20,10 +20,18 @@ export {
     removeFromCart,
     updateCartItem,
     clearCart,
-    mergeGuestCartOnLogin,
     calculateCartTotals,
     CART_ITEM_POPULATE
 } from "./cart.service.js"
+
+export {
+    getGuestCart,
+    addToGuestCart,
+    updateGuestCartItem,
+    removeFromGuestCart,
+    clearGuestCart,
+    mergeGuestCartOnLogin
+} from "./guest-cart.service.js"
 
 export {
     getAllCartsService,

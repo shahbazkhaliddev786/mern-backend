@@ -8,18 +8,27 @@ import {
   updateCartItem,
   removeFromCart,
   clearCart,
+  getGuestCart,
+  addToGuestCart,
+  updateGuestCartItem,
+  removeFromGuestCart,
+  clearGuestCart,
 } from '../services/index.js';
 
-import type { 
-  AddToCartBody, 
-  UpdateCartItemBody, 
-  CartItemParams 
+import type {
+  AddToCartBody,
+  UpdateCartItemBody,
+  CartItemParams
 } from '../types/index.js';
+
+// Signed-in users have a DB cart keyed by their id; guests keep theirs in the session.
+const signedInUserId = (req: Request<any>): string | undefined => (req as any).user?._id?.toString();
 
 // Get user cart
 export const getUserCart = asyncHandler(async (req: Request, res: Response) => {
   try {
-    const cart = await getCart(req);
+    const userId = signedInUserId(req);
+    const cart = userId ? await getCart(userId) : await getGuestCart(req.session);
 
     logger.info('Cart retrieved successfully', {
       userId: (req as any).user?._id || 'guest',
@@ -37,7 +46,10 @@ export const addItemToCart = asyncHandler(async (req: Request<{},{}, AddToCartBo
   const { productId, quantity } = req.body;
 
   try {
-    const cart = await addToCart(req, productId, quantity);
+    const userId = signedInUserId(req);
+    const cart = userId
+      ? await addToCart(userId, productId, quantity)
+      : await addToGuestCart(req.session, productId, quantity);
 
     logger.info('Item added to cart', {
       userId: (req as any).user?._id || 'guest',
@@ -67,7 +79,10 @@ export const updateItemInCart = asyncHandler(async (req: Request<CartItemParams,
     if (productId === undefined) {
       throw new Error('Product ID is required');
     }
-    const cart = await updateCartItem(req, productId, Number(quantity));
+    const userId = signedInUserId(req);
+    const cart = userId
+      ? await updateCartItem(userId, productId, Number(quantity))
+      : await updateGuestCartItem(req.session, productId, Number(quantity));
 
     logger.info('Cart item quantity updated', {
       userId: (req as any).user?._id || 'guest',
@@ -95,7 +110,8 @@ export const removeItemFromCart = asyncHandler(async (req: Request<CartItemParam
     if (productId === undefined) {
       throw new Error('Product ID is required');
     }
-    const cart = await removeFromCart(req, productId);
+    const userId = signedInUserId(req);
+    const cart = userId ? await removeFromCart(userId, productId) : await removeFromGuestCart(req.session, productId);
 
     logger.info('Item removed from cart', {
       userId: (req as any).user?._id || 'guest',
@@ -117,7 +133,8 @@ export const removeItemFromCart = asyncHandler(async (req: Request<CartItemParam
 // Clear cart
 export const clearUserCart = asyncHandler(async (req: Request, res: Response) => {
   try {
-    const cart = await clearCart(req);
+    const userId = signedInUserId(req);
+    const cart = userId ? await clearCart(userId) : await clearGuestCart(req.session);
 
     logger.info('Cart cleared successfully', {
       userId: (req as any).user?._id || 'guest',

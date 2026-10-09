@@ -1,4 +1,3 @@
-import type { Request } from 'express';
 import { Order, Product, PendingCheckout } from '../models/index.js';
 import { getCart, clearCart } from './cart.service.js';
 import { computeOrderPricing } from './pricing.service.js';
@@ -8,7 +7,7 @@ import {
   sendOrderConfirmationEmail 
 } from '../utils/order.confirmation.email.js';
 import logger from '../utils/logger.js';
-import type { IOrder } from '../models/order.model.js';
+import type { IOrder, IShippingAddress } from '../models/order.model.js';
 import mongoose from 'mongoose';
 
 export class NotFoundError extends Error {
@@ -27,8 +26,10 @@ export class UnauthorizedError extends Error {
   }
 }
 
-export const createCheckoutSession = async (req: Request) => {
-  const cart = await getCart(req);
+// Takes the user id and address rather than the request, so the agent's
+// place_order tool can wrap it directly (reconciliation.md Gap 1).
+export const createCheckoutSession = async (userId: string, shippingAddress: IShippingAddress) => {
+  const cart = await getCart(userId);
   if (cart.itemsCount === 0) throw new Error('Cart is empty');
 
   const lineItems = cart.items.map((item: any) => ({
@@ -50,14 +51,13 @@ export const createCheckoutSession = async (req: Request) => {
     success_url: `${config.FRONTEND_URL}/order/success?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${config.FRONTEND_URL}/cart`,
     metadata: {
-      userId: (req as any).user?._id?.toString() || 'guest',
+      userId,
     },
   });
 
-  // Only the shipping address comes from the request (validated upstream by
-  // validateBody(shippingSchema)). tax/shipping/total are computed server-side
-  // from the cart — the client can never influence what's charged.
-  const { shippingAddress } = req.body;
+  // Only the shipping address comes from the caller (validated upstream with
+  // shippingSchema). tax/shipping/total are computed server-side from the
+  // cart — the client can never influence what's charged.
   const { tax, shipping, total } = computeOrderPricing(cart.subtotal);
 
   // Snapshot the cart against this checkout session — NOT an Order yet.
@@ -66,7 +66,7 @@ export const createCheckoutSession = async (req: Request) => {
   // or fails payment never ends up with an order on file.
   await PendingCheckout.create({
     stripeSessionId: session.id,
-    user: (req as any).user?._id || null,
+    user: userId,
     items: cart.items.map((item: any) => ({
       product: item.product._id,
       name: item.product.name,
@@ -136,7 +136,7 @@ export const handleStripeWebhook = async (rawBody: Buffer, sig: string | string[
     // Clear cart
     const userId = session.metadata.userId;
     if (userId && userId !== 'guest') {
-      await clearCart({ user: { _id: userId } } as any);
+      await clearCart(userId);
     }
 
     // Send email if user has email

@@ -7,20 +7,18 @@ import {
   clearUserCart,
 } from '../controllers/index.js';
 
-import { 
-  addToCartValidation,
-  updateCartItemValidation,
-  removeFromCartValidation
- } from '../validations/index.js';
+import { productIdParamValidation } from '../validations/index.js';
+import { addToCartSchema, updateCartItemSchema } from '../validations/cart.schema.js';
 
- import { validate } from '../middlewares/validation.middleware.js';
+import { validate } from '../middlewares/validation.middleware.js';
+import { validateBody } from '../middlewares/zod-validate.middleware.js';
 
 import { optionalAuthMiddleware } from '../middlewares/auth.middleware.js';
 
 export const cartRouter = Router();
 
 cartRouter.get('/', optionalAuthMiddleware, getUserCart);
-cartRouter.post('/', optionalAuthMiddleware, addToCartValidation, validate, addItemToCart);
-cartRouter.patch('/items/:productId', optionalAuthMiddleware, updateCartItemValidation, validate, updateItemInCart);
-cartRouter.delete('/items/:productId', optionalAuthMiddleware, removeFromCartValidation, validate, removeItemFromCart);
+cartRouter.post('/', optionalAuthMiddleware, validateBody(addToCartSchema), addItemToCart);
+cartRouter.patch('/items/:productId', optionalAuthMiddleware, productIdParamValidation, validate, validateBody(updateCartItemSchema), updateItemInCart);
+cartRouter.delete('/items/:productId', optionalAuthMiddleware, productIdParamValidation, validate, removeItemFromCart);
 cartRouter.delete('/', optionalAuthMiddleware, clearUserCart);

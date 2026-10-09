@@ -21,4 +21,5 @@ export default {
     STRIPE_SECRET: process.env.STRIPE_SECRET || "",
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
     FRONTEND_URL: process.env.FRONTEND_URL || "https://mern-frontend-seven-iota.vercel.app",
+    SUPPORT_WEBHOOK_URL: process.env.SUPPORT_WEBHOOK_URL || "",
 }

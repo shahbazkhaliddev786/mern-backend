@@ -37,3 +37,7 @@ export {
 export {
     adminDashboardRouter
 } from './admin-dashboard.routes.js';
+
+export {
+    supportRouter
+} from './support.routes.js';

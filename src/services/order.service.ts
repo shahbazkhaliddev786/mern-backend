@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { Order, Product, PendingCheckout } from '../models/index.js';
 import { getCart, clearCart } from './cart.service.js';
+import { computeOrderPricing } from './pricing.service.js';
 import { stripeClient } from '../config/stripe.js';
 import config from '../config/config.js';
 import { 
@@ -53,8 +54,11 @@ export const createCheckoutSession = async (req: Request) => {
     },
   });
 
-  // Extract data from request body
-  const { shippingAddress, tax = 0, shipping = 0 } = req.body;
+  // Only the shipping address comes from the request (validated upstream by
+  // validateBody(shippingSchema)). tax/shipping/total are computed server-side
+  // from the cart — the client can never influence what's charged.
+  const { shippingAddress } = req.body;
+  const { tax, shipping, total } = computeOrderPricing(cart.subtotal);
 
   // Snapshot the cart against this checkout session — NOT an Order yet.
   // The Order is only created once the webhook confirms payment actually
@@ -74,7 +78,7 @@ export const createCheckoutSession = async (req: Request) => {
     subtotal: cart.subtotal,
     tax,
     shipping,
-    total: cart.subtotal + Number(tax) + Number(shipping),
+    total,
   });
 
   return { sessionId: session.id, url: session.url };

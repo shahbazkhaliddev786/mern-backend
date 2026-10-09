@@ -48,7 +48,6 @@ export {
 } from './auth.validations.js';
 
 export {
-    createOrderValidation,
     updateOrderStatusValidation
 } from './order.validations.js';
 

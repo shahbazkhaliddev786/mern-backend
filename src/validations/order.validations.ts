@@ -1,16 +1,9 @@
 
 import { body } from 'express-validator';
 
-export const createOrderValidation = [
-  body('tax')
-    .optional()
-    .isFloat({ min: 0 })
-    .withMessage('Tax must be a positive number'),
-  body('shipping')
-    .optional()
-    .isFloat({ min: 0 })
-    .withMessage('Shipping must be a positive number'),
-];
+// Checkout body (shipping address) is validated server-side with zod via
+// validateBody(shippingSchema); tax/shipping are no longer accepted from the
+// client — they're computed in pricing.service.ts. See order.routes.ts.
 
 export const updateOrderStatusValidation = [
   body('status')

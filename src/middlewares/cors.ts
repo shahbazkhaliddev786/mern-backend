@@ -5,13 +5,21 @@ const allowedOrigins = [
   'https://aljostore.com',
   'https://www.aljostore.com',
   'http://localhost:5000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
   'https://mern-frontend-seven-iota.vercel.app'
 ];
 
+if (config.FRONTEND_URL && !allowedOrigins.includes(config.FRONTEND_URL)) {
+  allowedOrigins.push(config.FRONTEND_URL);
+}
 
 if (config.ENV === 'development') {
   allowedOrigins.push('http://localhost:3000');
   allowedOrigins.push('http://localhost:5000');
+  allowedOrigins.push('http://localhost:5173');
+  allowedOrigins.push('http://127.0.0.1:5173');
+  allowedOrigins.push('http://127.0.0.1:3000');
 }
 
 export const corsMiddleware = cors({

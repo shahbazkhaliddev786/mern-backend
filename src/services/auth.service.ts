@@ -1,8 +1,8 @@
 import { User, OTP } from '../models/index.js';
-import { 
-  generateAccessToken, 
-  generateRefreshToken, 
-  hashRefreshToken 
+import {
+  generateAccessToken,
+  generateRefreshToken,
+  hashRefreshToken
 } from '../utils/auth.utils.js';
 import { sendOTPEmail } from '../utils/email.js';
 import bufferGenerator from '../utils/buffer.generator.js'

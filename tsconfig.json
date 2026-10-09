@@ -47,5 +47,10 @@
   "include": [
     "src/**/*",
     "src/types/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.test.ts"
   ]
 }

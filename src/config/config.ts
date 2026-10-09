@@ -1,6 +1,8 @@
 import dotenvFlow from 'dotenv-flow';
 
-dotenvFlow.config();
+dotenvFlow.config({
+    default_node_env: 'development'
+});
 
 export default {
     ENV: process.env.ENV || 'development',

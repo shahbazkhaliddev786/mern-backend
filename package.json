@@ -8,12 +8,23 @@
     "build": "tsc",
     "watch": "tsc -w",
     "dev": "cross-env NODE_ENV=development nodemon --watch src --ext ts --exec tsx src/index.ts",
-    "start": "cross-env NODE_ENV=production node dist/index.js"
+    "start": "cross-env NODE_ENV=production node dist/index.js",
+    "test": "vitest run"
   },
   "keywords": [],
   "author": "Shahbaz Khalid",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@langchain/anthropic": "^1.5.12",
+    "@langchain/core": "^1.2.17",
+    "@langchain/langgraph": "^1.4.20",
+    "@langchain/langgraph-checkpoint-mongodb": "^1.4.2",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.81.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.223.0",
+    "@opentelemetry/sdk-node": "^0.223.0",
+    "@traceloop/node-server-sdk": "^0.27.0",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.8.0",
     "colorette": "^2.0.20",
@@ -28,14 +39,19 @@
     "express-validator": "^7.3.1",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
+    "langsmith": "^0.10.8",
     "mongoose": "^9.0.2",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.12",
     "rate-limiter-flexible": "^9.0.1",
     "source-map-support": "^0.5.21",
     "stripe": "^20.1.0",
+    "typesense": "^3.1.1",
+    "voyageai": "^0.4.0",
     "winston": "^3.19.0",
-    "winston-mongodb": "^7.0.1"
+    "winston-mongodb": "^7.0.1",
+    "zod": "^4.6.5",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",
@@ -47,6 +63,7 @@
     "@types/node": "^25.0.3",
     "@types/nodemailer": "^7.0.4",
     "@types/source-map-support": "^0.5.10",
+    "deepeval": "^0.9.22",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
@@ -55,6 +72,8 @@
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vite": "^8.3.3",
+    "vitest": "^5.0.3"
   }
 }

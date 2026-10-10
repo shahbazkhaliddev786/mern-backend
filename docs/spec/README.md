@@ -38,4 +38,4 @@ Add a row when a spec is created; update its status as it moves.
 | 009 | [Confirm card](./009-m4-confirm-card.md) | M4 | Done | `mern-frontend` `daf99b4` + `7b26e98` |
 | 010 | [place_order](./010-m4-place-order.md) | M4 | Done | `d7ad0af` + `mern-frontend` `d5ff830` |
 | 011 | [update_profile and submit_support_request](./011-m4-profile-and-support.md) | M4 | Done | `3d106d9` + `mern-frontend` `b6f62dd` |
-| 012 | [Avatar upload](./012-m4-avatar-upload.md) | M4 | Done | — |
+| 012 | [Avatar upload](./012-m4-avatar-upload.md) | M4 | Done | `8db0052` + `mern-frontend` `5514a92` |

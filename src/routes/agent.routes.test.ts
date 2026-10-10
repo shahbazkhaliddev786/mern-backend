@@ -23,6 +23,21 @@ vi.mock('../agent/tools/index.js', async () => {
   };
 });
 
+// Uploads in memory (the MongoDB-backed service has its own test).
+const uploads = vi.hoisted(() => ({ store: new Map<string, { user: string; name: string; size: number; type: string }>(), next: 1 }));
+vi.mock('../services/upload.service.js', () => ({
+  createAvatarUpload: async (userId: string, file: { originalname: string; size: number; mimetype: string }) => {
+    const uploadId = (uploads.next++).toString(16).padStart(24, '0');
+    uploads.store.set(uploadId, { user: userId, name: file.originalname, size: file.size, type: file.mimetype });
+    return { uploadId, name: file.originalname, size: file.size };
+  },
+  findOwnedUpload: async (userId: string, uploadId: string) => {
+    const found = uploads.store.get(uploadId);
+    return found && found.user === userId ? { uploadId, name: found.name, size: found.size } : null;
+  },
+  formatSize: (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`,
+}));
+
 import config from '../config/config';
 import { ScriptedChatModel, toolCall } from '../agent/test-utils';
 import { createAgentRouter } from './agent.routes';
@@ -244,6 +259,59 @@ describe('POST /agent/chat — confirmation (spec 008)', () => {
   it('rejects a malformed resume body with 400', async () => {
     expect((await post(withTestAuth, { resume: { interruptId: 'x', approved: true } }, 'u1')).status).toBe(400); // no threadId
     expect((await post(withTestAuth, { threadId: crypto.randomUUID(), resume: { interruptId: 'x', approved: 'yes' } }, 'u1')).status).toBe(400);
+  });
+});
+
+describe('POST /agent/uploads/avatar and attachments (spec 012)', () => {
+  const uploadUrl = (base: string) => base.replace(/\/chat$/, '/uploads/avatar');
+  const MB = 1024 * 1024;
+  const upload = (base: string, files: { type: string; bytes: number; name?: string }[], user?: string) => {
+    const form = new FormData();
+    files.forEach((f, i) => form.append('profile', new Blob([new Uint8Array(f.bytes)], { type: f.type }), f.name ?? `photo-${i}.png`));
+    return fetch(uploadUrl(base), { method: 'POST', body: form, headers: user ? { 'x-test-user': user } : {} });
+  };
+
+  beforeEach(() => uploads.store.clear());
+
+  it('stores one allowed image for its owner and returns its id, name and size', async () => {
+    const response = await upload(withTestAuth, [{ type: 'image/png', bytes: 2048, name: 'me.png' }], 'u1');
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { data: { uploadId: string; name: string; size: number } };
+    expect(body.data).toMatchObject({ name: 'me.png', size: 2048 });
+    expect(uploads.store.get(body.data.uploadId)).toMatchObject({ user: 'u1', type: 'image/png' });
+  });
+
+  it('applies the Edit Profile limits: size, type, count, and a missing file', async () => {
+    expect((await upload(withTestAuth, [{ type: 'image/png', bytes: 2 * MB + 1 }], 'u1')).status).toBe(400);
+    expect((await upload(withTestAuth, [{ type: 'application/pdf', bytes: 100 }], 'u1')).status).toBe(400);
+    expect((await upload(withTestAuth, [{ type: 'image/png', bytes: 10 }, { type: 'image/png', bytes: 10 }], 'u1')).status).toBe(400);
+    expect((await upload(withTestAuth, [], 'u1')).status).toBe(400);
+    expect(uploads.store.size).toBe(0);
+  });
+
+  it('needs a signed-in customer and the agent switched on', async () => {
+    expect((await upload(withRealAuth, [{ type: 'image/png', bytes: 10 }])).status).toBe(401);
+    config.AGENT_ENABLED = 'false';
+    expect((await upload(withTestAuth, [{ type: 'image/png', bytes: 10 }], 'u1')).status).toBe(503);
+  });
+
+  it('adds a server-written note with the upload id to the customer\'s message', async () => {
+    const created = (await (await upload(withTestAuth, [{ type: 'image/png', bytes: 348160, name: 'photo.png' }], 'u1')).json()) as {
+      data: { uploadId: string };
+    };
+    model = new ScriptedChatModel([new AIMessage('Nice picture!')]);
+    await readEvents(await post(withTestAuth, { message: 'use this as my picture', uploadId: created.data.uploadId }, 'u1'));
+    const sent = model.calls[0]!.filter((m) => m instanceof HumanMessage).map((m) => m.content);
+    expect(sent).toEqual([`use this as my picture\n\n[The customer attached an image: "photo.png", 340 KB. upload_id: ${created.data.uploadId}]`]);
+  });
+
+  it('refuses another customer\'s upload id before streaming', async () => {
+    const created = (await (await upload(withTestAuth, [{ type: 'image/png', bytes: 10 }], 'alice')).json()) as { data: { uploadId: string } };
+    model = new ScriptedChatModel([new AIMessage('should not run')]);
+    const response = await post(withTestAuth, { message: 'use this', uploadId: created.data.uploadId }, 'mallory');
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ status: 'error', message: 'That attachment has expired. Please attach it again.' });
+    expect(model.calls).toHaveLength(0);
   });
 });
 

@@ -24,7 +24,7 @@ export const STEP_BUDGET = 8;
 // Part of every conversation's checkpoint key (spec 008). Bump it whenever the system prompt or
 // the tool list changes: an edited prompt mid-conversation invalidates the thinking blocks
 // already in that conversation (tech-stack.md Layer 3), so conversations start fresh instead.
-export const PROMPT_VERSION = 4;
+export const PROMPT_VERSION = 5;
 
 // Checkpoints and confirm claims expire after 30 days without activity (spec 002).
 export const CHECKPOINT_TTL_SECONDS = 2_592_000;

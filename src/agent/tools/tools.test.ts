@@ -13,6 +13,8 @@ const services = vi.hoisted(() => ({
   createOrReuseCheckoutSession: vi.fn(),
   updateUserProfile: vi.fn(),
   submitSupportRequest: vi.fn(),
+  applyAvatarUpload: vi.fn(),
+  findOwnedUpload: vi.fn(),
   getUserById: vi.fn(),
   brandNames: [] as { _id: string; name: string }[],
   categoryNames: [] as { _id: string; name: string }[],
@@ -43,6 +45,19 @@ vi.mock('../../services/support.service.js', () => {
     }
   }
   return { submitSupportRequest: services.submitSupportRequest, SupportDeliveryError };
+});
+vi.mock('../../services/upload.service.js', () => {
+  class UploadNotFoundError extends Error {
+    constructor() {
+      super("That picture has expired or isn't yours. Please attach it again.");
+    }
+  }
+  return {
+    applyAvatarUpload: services.applyAvatarUpload,
+    findOwnedUpload: services.findOwnedUpload,
+    formatSize: (bytes: number) => `${Math.round(bytes / 1024)} KB`,
+    UploadNotFoundError,
+  };
 });
 // Name lookups: find({ name: { $in: [regex] } }).select().lean() against an in-memory list.
 const { nameModel } = vi.hoisted(() => ({
@@ -117,6 +132,7 @@ describe('tool definitions', () => {
     expect(metadata.place_order).toEqual({ kind: 'write', confirmRequired: true });
     expect(metadata.update_profile).toEqual({ kind: 'write', confirmRequired: true });
     expect(metadata.submit_support_request).toEqual({ kind: 'write', confirmRequired: true });
+    expect(metadata.upload_avatar).toEqual({ kind: 'write', confirmRequired: true });
   });
 });
 
@@ -493,5 +509,38 @@ describe('submit_support_request', () => {
     const summary = await summarizeConfirmation(A, { name: 'submit_support_request', args: long });
     expect(summary).toBe(`Send this to Aljo Store support as Jane Doe (jane@example.com)? Subject: "Late order" — "${'x'.repeat(120)}…"`);
     expect(services.submitSupportRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('upload_avatar', () => {
+  const UPLOAD_ID = '64b0000000000000000000e1';
+
+  it('applies the closure\'s upload and returns no picture URL to the model', async () => {
+    services.applyAvatarUpload.mockResolvedValue({ id: A.userId, name: 'Jane', email: 'j@example.com', profile: 'https://res.cloudinary.com/x.png' });
+    const out = await call(A, 'upload_avatar', { upload_id: UPLOAD_ID });
+    expect(services.applyAvatarUpload).toHaveBeenCalledWith(A.userId, UPLOAD_ID);
+    expect(out).toEqual({ profilePictureUpdated: true });
+    expect(JSON.stringify(out)).not.toContain('cloudinary');
+  });
+
+  it('reports an expired or foreign upload plainly, and rejects malformed ids', async () => {
+    const { UploadNotFoundError } = await import('../../services/upload.service.js');
+    services.applyAvatarUpload.mockRejectedValue(new UploadNotFoundError());
+    expect(await call(A, 'upload_avatar', { upload_id: UPLOAD_ID })).toEqual({ error: "That picture has expired or isn't yours. Please attach it again." });
+    await expect(toolNamed(A, 'upload_avatar').invoke({ upload_id: 'not-an-id' })).rejects.toThrow();
+  });
+
+  it('asks to try again when the picture could not be saved', async () => {
+    services.applyAvatarUpload.mockRejectedValue(new Error('Failed to upload profile picture'));
+    expect(await call(A, 'upload_avatar', { upload_id: UPLOAD_ID })).toEqual({ error: "The picture couldn't be saved just now. Ask me to try again in a moment." });
+  });
+
+  it('summarizes the attached file without applying it', async () => {
+    services.findOwnedUpload.mockResolvedValue({ uploadId: UPLOAD_ID, name: 'photo.png', size: 348160 });
+    expect(await summarizeConfirmation(A, { name: 'upload_avatar', args: { upload_id: UPLOAD_ID } })).toBe('Set "photo.png" (340 KB) as your profile picture?');
+    expect(services.findOwnedUpload).toHaveBeenCalledWith(A.userId, UPLOAD_ID);
+    services.findOwnedUpload.mockResolvedValue(null);
+    expect(await summarizeConfirmation(A, { name: 'upload_avatar', args: { upload_id: UPLOAD_ID } })).toBe('That picture has expired. Cancel and attach it again.');
+    expect(services.applyAvatarUpload).not.toHaveBeenCalled();
   });
 });

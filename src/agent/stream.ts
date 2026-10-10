@@ -24,6 +24,7 @@ export const TOOL_LABELS: Record<string, string> = {
   place_order: 'Starting checkout…',
   update_profile: 'Updating your profile…',
   submit_support_request: 'Sending your message to support…',
+  upload_avatar: 'Updating your profile picture…',
 };
 
 // Nodes whose messages are the assistant speaking to the customer.

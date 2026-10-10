@@ -7,8 +7,9 @@ import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getUserById, updateUserProfile } from '../../services/auth.service.js';
 import { submitSupportRequest, SupportDeliveryError } from '../../services/support.service.js';
+import { applyAvatarUpload, findOwnedUpload, formatSize, UploadNotFoundError } from '../../services/upload.service.js';
 import { supportMessageSchema } from '../../validations/support.schema.js';
-import { safely, toolError, toolResult } from './helpers.js';
+import { OBJECT_ID_PATTERN, safely, toolError, toolResult } from './helpers.js';
 import { CONFIRMED_WRITE_TOOL_METADATA, type ToolContext } from './types.js';
 
 // Same bounds as sign-up (registerValidation): 2-50 characters after trimming.
@@ -69,4 +70,41 @@ export async function summarizeSupportRequest(ctx: ToolContext, args: Record<str
   const user = await getUserById(ctx.userId);
   const from = user ? ` as ${user.name} (${user.email})` : '';
   return `Send this to Aljo Store support${from}? Subject: "${String(args.subject ?? '')}" — ${quoteShort(String(args.message ?? ''))}`;
+}
+
+// upload_avatar (spec 012): applies an image the customer attached in the chat. The model only
+// has the opaque upload_id from the server's attachment note; the bytes never reach it.
+const avatarSchema = z.object({
+  upload_id: z.string().regex(OBJECT_ID_PATTERN, 'Not an upload id').describe("The upload_id from the attachment note in the customer's message"),
+});
+
+export const uploadAvatarTool = (ctx: ToolContext) =>
+  tool(
+    safely('upload_avatar', ctx.userId, async ({ upload_id }: z.infer<typeof avatarSchema>) => {
+      try {
+        await applyAvatarUpload(ctx.userId, upload_id);
+      } catch (error) {
+        if (error instanceof UploadNotFoundError) return toolError(error.message);
+        if (error instanceof Error && /failed to (upload|process)/i.test(error.message)) {
+          // The upload is kept, so asking again can work.
+          return toolError("The picture couldn't be saved just now. Ask me to try again in a moment.");
+        }
+        throw error;
+      }
+      return toolResult({ profilePictureUpdated: true });
+    }),
+    {
+      name: 'upload_avatar',
+      description:
+        'Set an image the customer attached in this chat as their profile picture. Use the upload_id from the attachment note; never make one up. The app asks the customer to confirm first.',
+      schema: avatarSchema,
+      metadata: CONFIRMED_WRITE_TOOL_METADATA,
+    },
+  );
+
+/** What the customer confirms for upload_avatar. Read-only. */
+export async function summarizeUploadAvatar(ctx: ToolContext, args: Record<string, unknown>): Promise<string> {
+  const upload = await findOwnedUpload(ctx.userId, String(args.upload_id ?? ''));
+  if (!upload) return 'That picture has expired. Cancel and attach it again.';
+  return `Set "${upload.name}" (${formatSize(upload.size)}) as your profile picture?`;
 }

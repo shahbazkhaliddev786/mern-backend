@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M4 — Write tools + confirmation gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | backend commit (see the index) + `mern-frontend` `5514a92` |
 | **Repo** | `mern-backend` (upload endpoint, model, tool) and `mern-frontend` (attach button) |
 
 ## Goal
@@ -74,34 +74,34 @@ The note is written by the server, and the id is opaque and owner-scoped. That i
 
 ## Tasks
 
-- [ ] `PendingUpload` model + TTL; `upload.service.ts` (`createAvatarUpload`, `applyAvatarUpload`)
-- [ ] Upload route + controller on the agent router
-- [ ] Chat `uploadId`: ownership check + server-written note
-- [ ] `upload_avatar` tool, summary, label; prompt + `PROMPT_VERSION` 5
-- [ ] Frontend: attach button, upload service, chip, bubble thumbnail, avatar refresh
-- [ ] Tests (below); browser check
-- [ ] Update `phases.md` §0 and the spec index
+- [x] `PendingUpload` model + TTL; `upload.service.ts` (`createAvatarUpload`, `applyAvatarUpload`)
+- [x] Upload route + controller on the agent router
+- [x] Chat `uploadId`: ownership check + server-written note
+- [x] `upload_avatar` tool, summary, label; prompt + `PROMPT_VERSION` 5
+- [x] Frontend: attach button, upload service, chip, bubble thumbnail, avatar refresh
+- [x] Tests (below); browser check
+- [x] Update `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] **Upload limits:** an upload over 2 MB, of a wrong type, or with two files → 400 with the existing messages; without a token → 401; agent off → 503 — HTTP tests
-- [ ] **Ownership:**
-  - [ ] An upload is stored for its owner only.
-  - [ ] Another user's `uploadId` in a chat message → 400 "expired" (no note added).
-  - [ ] `applyAvatarUpload` with another user's id → error.
-  - [ ] Covered by HTTP and MongoDB tests.
-- [ ] `upload_avatar` pauses with its summary, and on confirm calls `updateUserProfile` with the stored bytes and type, then deletes the upload — tool tests (Cloudinary mocked)
-- [ ] A Cloudinary failure keeps the upload, and confirming again can succeed — tool test
-- [ ] Uploads expire: the TTL index exists on `createdAt` (3,600 s) — MongoDB test
-- [ ] The model never receives image bytes or the stored URL: tool results and the attachment note contain only the id, name and size — tests
-- [ ] **Frontend:**
-  - [ ] An oversize or wrong-type file is refused in the browser.
-  - [ ] The upload posts `FormData` with the token.
-  - [ ] The chip shows and can be removed.
-  - [ ] The message carries `uploadId`.
-  - [ ] The avatar refresh runs after `upload_avatar`.
-  - [ ] Covered by tests.
-- [ ] Backend lint 0 errors, build, tests with and without `MONGO_URL`; frontend tests, ESLint, Prettier, build; a browser check against a scripted backend
+- [x] **Upload limits:** an upload over 2 MB, of a wrong type, or with two files → 400 with the existing messages; without a token → 401; agent off → 503 — HTTP tests
+- [x] **Ownership:**
+  - [x] An upload is stored for its owner only.
+  - [x] Another user's `uploadId` in a chat message → 400 "expired" (no note added).
+  - [x] `applyAvatarUpload` with another user's id → error.
+  - [x] Covered by HTTP and MongoDB tests.
+- [x] `upload_avatar` pauses with its summary, and on confirm calls `updateUserProfile` with the stored bytes and type, then deletes the upload — tool tests (Cloudinary mocked)
+- [x] A Cloudinary failure keeps the upload, and confirming again can succeed — tool test
+- [x] Uploads expire: the TTL index exists on `createdAt` (3,600 s) — MongoDB test
+- [x] The model never receives image bytes or the stored URL: tool results and the attachment note contain only the id, name and size — tests
+- [x] **Frontend:**
+  - [x] An oversize or wrong-type file is refused in the browser.
+  - [x] The upload posts `FormData` with the token.
+  - [x] The chip shows and can be removed.
+  - [x] The message carries `uploadId`.
+  - [x] The avatar refresh runs after `upload_avatar`.
+  - [x] Covered by tests.
+- [x] Backend lint 0 errors, build, `npm test` 139 + 19 skipped / 158 with `MONGO_URL`; frontend 64 tests, ESLint 0 errors, Prettier, build; a browser check against a scripted backend
 
 ## Test plan
 
@@ -111,14 +111,35 @@ The note is written by the server, and the id is opaque and owner-scoped. That i
 
 ## Open questions
 
-1. **Endpoint path:** `POST /api/v1/agent/uploads/avatar` (recommended: behind the agent's on/off switch and only used by the chat), or `/api/v1/uploads/avatar` as first sketched in reconciliation Gap 11?
-2. **Upload lifetime:** 1 hour (recommended, as Gap 11 proposed), or longer?
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the work is done._
+**2026-10-10** — backend in this repo; frontend `mern-frontend` `5514a92`.
+- **Backend:** `PendingUpload` model (1 h TTL), `src/services/upload.service.ts`, the upload route, the chat `uploadId` check and note, the `upload_avatar` tool, prompt and `PROMPT_VERSION` 5.
+- **New tests:**
+  - backend: 4 tool tests, 5 HTTP tests (upload limits, 401, 503, another user's `uploadId`, the attachment note), and `src/services/upload.service.mongo.test.ts` (5: ownership, apply-then-delete, failure keeps the upload, TTL index)
+  - frontend: 7 component tests and 2 service tests (55 → 64)
+- **Example:**
+  - the note the model sees: *[The customer attached an image: "beach.png", 340 KB. upload_id: 6720…]*
+  - the confirmation: *Set "beach.png" (340 KB) as your profile picture?*
+- **Browser check** (Chromium via Playwright, real frontend, fake backend; signed in through the login form):
+  - the chip showed "Ready to send" after the upload; the fake backend saw a multipart body with a `profile` field and a Bearer token
+  - the message went with `uploadId`, and the bubble showed the thumbnail
+  - after **Confirm** the header avatar changed to the new picture; no page errors
+
+| Attached | Confirmed | Header after |
+|---|---|---|
+| ![Attached](./assets/012-attached.png) | ![Confirmed](./assets/012-done.png) | ![Header](./assets/012-header.png) |
+
+- **Not yet seen:** a real Cloudinary upload through the tool. It uses the same `updateUserProfile` as the Edit Profile page, and is part of the parked live check.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved. Endpoint `POST /api/v1/agent/uploads/avatar` | Behind the agent's on/off switch; only the chat uses it |
+| 2026-10-10 | Uploads expire after 1 hour | As reconciliation Gap 11 proposed; long enough to confirm, short enough not to keep images around |
+| 2026-10-10 | The image is uploaded as soon as it's picked, not when the message is sent | Sending stays quick, and a refused file shows its error in the chip before anything is sent |
+| 2026-10-10 | "Try again" on a failed message resends its attachment too | The `uploadId` is kept on the message; the server rechecks ownership and expiry |
+| 2026-10-10 | The file name in the attachment note has quotes and brackets removed | The name is customer-supplied text; it can't close the note or fake a second one |

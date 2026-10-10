@@ -26,10 +26,12 @@ export const TOOL_LABELS: Record<string, string> = {
   update_profile: 'Updating your profile…',
   submit_support_request: 'Sending your message to support…',
   upload_avatar: 'Updating your profile picture…',
+  // Not a tool: the status shown while Opus takes over a stuck turn (spec 015).
+  escalation: 'Taking a closer look…',
 };
 
 // Nodes whose messages are the assistant speaking to the customer.
-const SPEAKING_NODES = new Set(['agent', 'budget_exceeded']);
+const SPEAKING_NODES = new Set(['agent', 'give_up']);
 
 type StreamChunk = [mode: string, payload: unknown];
 
@@ -83,6 +85,9 @@ export function* toAgentEvents([mode, payload]: StreamChunk, options: StreamOpti
       if (!options.confirmRequired?.has(call.name)) yield toolStartEvent(call.name);
     }
   }
+
+  const escalateUpdate = update.escalate as { escalated?: boolean } | undefined;
+  if (escalateUpdate?.escalated === true) yield toolStartEvent('escalation');
 
   const toolsUpdate = update.tools as { messages?: BaseMessage[] } | undefined;
   for (const message of toolsUpdate?.messages ?? []) {

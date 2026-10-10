@@ -1,7 +1,7 @@
 import { tool, type DynamicStructuredTool } from '@langchain/core/tools';
 import logger from '../../utils/logger.js';
 import { consumeBudgets, waitPhrase, type AgentBudget } from '../limits.js';
-import { toolError } from './helpers.js';
+import { toolResult } from './helpers.js';
 import type { ToolContext } from './types.js';
 
 /**
@@ -18,15 +18,18 @@ export function withWriteLimit(original: DynamicStructuredTool, ctx: ToolContext
         const result = await consumeBudgets(ctx.userId, budgets);
         if (!result.ok) {
           const wait = waitPhrase(result.msBeforeNext);
-          return toolError(
-            result.budget === 'support'
-              ? `You've sent several messages to support recently. Please wait ${wait}, or use the Contact page (/contact).`
-              : `You've made a lot of changes in a short time. Please wait ${wait} and try again.`,
-          );
+          // `limited` marks a refusal, not a failure: retrying won't help, so it never counts toward escalation (spec 015).
+          return toolResult({
+            error:
+              result.budget === 'support'
+                ? `You've sent several messages to support recently. Please wait ${wait}, or use the Contact page (/contact).`
+                : `You've made a lot of changes in a short time. Please wait ${wait} and try again.`,
+            limited: true,
+          });
         }
       } catch (error) {
         logger.error('AGENT_LIMIT_ERROR', { userId: ctx.userId, tool: original.name, error: error instanceof Error ? error.message : String(error) });
-        return toolError("I can't make changes right now. Please try again in a moment.");
+        return toolResult({ error: "I can't make changes right now. Please try again in a moment.", limited: true });
       }
       return original.func(args, undefined, config);
     },

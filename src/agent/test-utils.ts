@@ -54,5 +54,11 @@ export function recordingTool(name: string, result: unknown = { ok: true }, meta
 /** In-memory stand-ins for the agent's per-user limiters (spec 014), with optional smaller limits. */
 export function memoryLimiters(points: Partial<Record<AgentBudget, number>> = {}): AgentLimiters {
   const memory = (budget: AgentBudget) => new RateLimiterMemory({ ...AGENT_LIMITS[budget], points: points[budget] ?? AGENT_LIMITS[budget].points });
-  return { turnsBurst: memory('turnsBurst'), turnsDaily: memory('turnsDaily'), writes: memory('writes'), support: memory('support') };
+  return {
+    turnsBurst: memory('turnsBurst'),
+    turnsDaily: memory('turnsDaily'),
+    writes: memory('writes'),
+    support: memory('support'),
+    escalations: memory('escalations'),
+  };
 }

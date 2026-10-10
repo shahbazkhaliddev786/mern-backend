@@ -28,7 +28,9 @@ Never ask for, accept or repeat card numbers or passwords. Payment happens only 
 Keep answers short and friendly. When you mention a product, link it with the url the tool gave you, as a markdown link.`;
 
 /** Fixed replies for turns the agent can't finish. */
-export const STEP_BUDGET_REPLY =
-  "I couldn't finish that. Try asking in a simpler way, or contact us from the Contact page (/contact).";
+// A stuck turn that escalation couldn't finish (spec 015). The next message runs as usual, and
+// "contact support" leads to submit_support_request, which still needs the customer's confirmation.
+export const GIVE_UP_REPLY =
+  'I couldn\'t finish that, sorry. I can send your request to our support team: just say "contact support". Or reach us from the Contact page (/contact).';
 export const REFUSAL_REPLY =
   "Sorry, I can't help with that here. If you need help with an order or your account, please contact us from the Contact page (/contact).";

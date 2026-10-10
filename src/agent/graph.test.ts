@@ -2,8 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { Command, MemorySaver } from '@langchain/langgraph';
 import { STEP_BUDGET } from './config';
-import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from './graph';
-import { REFUSAL_REPLY, STEP_BUDGET_REPLY, SYSTEM_PROMPT } from './prompt';
+import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMIT } from './graph';
+import logger from '../utils/logger';
+import { tool } from '@langchain/core/tools';
+import { z } from 'zod';
+import { GIVE_UP_REPLY, REFUSAL_REPLY, SYSTEM_PROMPT } from './prompt';
 import { toAgentEvents, toolStartEvent, visibleText } from './stream';
 import { memoryLimiters, recordingTool, ScriptedChatModel, toolCall } from './test-utils';
 import { setAgentLimiters } from './limits';
@@ -16,7 +19,8 @@ vi.mock('./rag/knowledge.js', () => knowledge);
 const run = async (model: ScriptedChatModel, tools: ReturnType<typeof recordingTool>[], threadId = 't1', message = 'hi', checkpointer = new MemorySaver()) => {
   const graph = buildAgentGraph({ model, tools: tools.map((t) => t.tool), checkpointer, userId: 'u1' });
   const state = await graph.invoke(
-    { messages: [new HumanMessage(message)], toolCalls: 0 },
+    // What the chat service sends with each new message: the per-turn state starts again.
+    { messages: [new HumanMessage(message)], toolCalls: 0, escalated: false, turnCalls: [] },
     { configurable: { thread_id: threadId }, recursionLimit: RECURSION_LIMIT },
   );
   return state.messages as BaseMessage[];
@@ -45,12 +49,12 @@ describe('agent graph', () => {
     expect(model.bindings[0]!.kwargs).toEqual({ strict: true });
   });
 
-  it(`stops a turn after ${STEP_BUDGET} tool calls and answers every pending call`, async () => {
+  it(`stops a turn after ${STEP_BUDGET} tool calls and answers every pending call (no escalation model)`, async () => {
     const looping = recordingTool('search_products');
-    const model = new ScriptedChatModel(Array.from({ length: STEP_BUDGET + 3 }, () => toolCall('search_products')));
+    const model = new ScriptedChatModel(Array.from({ length: STEP_BUDGET + 3 }, (_, i) => toolCall('search_products', { query: `q${i}` })));
     const messages = await run(model, [looping]);
     expect(looping.runs).toHaveLength(STEP_BUDGET);
-    expect(lastText(messages)).toBe(STEP_BUDGET_REPLY);
+    expect(lastText(messages)).toBe(GIVE_UP_REPLY);
     // Every tool call in history has a result, so the next turn's request stays valid.
     const callIds = messages.flatMap((m) => (m as AIMessage).tool_calls?.map((c) => c.id) ?? []);
     const resultIds = messages.filter((m) => m instanceof ToolMessage).map((m) => (m as ToolMessage).tool_call_id);
@@ -59,7 +63,7 @@ describe('agent graph', () => {
 
   it('counts tool calls per turn, not per conversation', async () => {
     const tool = recordingTool('search_products');
-    const fiveCalls = () => [...Array.from({ length: 5 }, () => toolCall('search_products')), new AIMessage('done')];
+    const fiveCalls = () => [...Array.from({ length: 5 }, (_, i) => toolCall('search_products', { query: `q${i}` })), new AIMessage('done')];
     const model = new ScriptedChatModel([...fiveCalls(), ...fiveCalls()]);
     const checkpointer = new MemorySaver();
     await run(model, [tool], 'same-thread', 'first', checkpointer);
@@ -97,6 +101,217 @@ describe('store knowledge (spec 013)', () => {
     expect(lastText(state.messages as BaseMessage[])).toBe('Per our shipping policy, shipping is free on every order.');
     expect(model.calls[1]!.some((m) => m instanceof ToolMessage && String(m.content).includes('free on every order'))).toBe(true);
     expect(toolStartEvent('ask_store_knowledge')).toEqual({ event: 'tool_start', data: { tool: 'ask_store_knowledge', label: 'Checking store policies…' } });
+  });
+});
+
+describe('Opus escalation (spec 015)', () => {
+  const confirmedMeta = { kind: 'write', confirmRequired: true } as const;
+  type Recorded = ReturnType<typeof recordingTool>;
+
+  /** A tool that fails the first `failures` times, then succeeds. */
+  const flaky = (name: string, failures: number, limited = false) => {
+    const runs: unknown[] = [];
+    const t = tool(
+      async (args: Record<string, unknown>) => {
+        runs.push(args);
+        return runs.length <= failures ? JSON.stringify({ error: 'Lookup failed.', ...(limited ? { limited: true } : {}) }) : '{"ok":true}';
+      },
+      { name, description: `Test tool ${name}`, schema: z.object({}).passthrough() },
+    );
+    return { tool: t, runs };
+  };
+
+  const setup = (sonnetScript: AIMessage[], opusScript: AIMessage[], tools: Recorded[], allow: () => Promise<boolean> = async () => true) => {
+    const sonnet = new ScriptedChatModel(sonnetScript);
+    const opus = new ScriptedChatModel(opusScript);
+    const graph = buildAgentGraph({
+      model: sonnet,
+      tools: tools.map((t) => t.tool),
+      checkpointer: new MemorySaver(),
+      userId: 'u1',
+      summarize: async () => 'Remove all items?',
+      escalation: { model: opus, allow },
+    });
+    const config = { configurable: { thread_id: 'esc' }, recursionLimit: RECURSION_LIMIT };
+    const start = async (text = 'help') =>
+      (await graph.invoke({ messages: [new HumanMessage(text)], toolCalls: 0, escalated: false, turnCalls: [] }, config)) as {
+        messages: BaseMessage[];
+        __interrupt__?: unknown[];
+      };
+    const resume = (approved: boolean) => graph.invoke(new Command({ resume: { approved } }), config) as Promise<{ messages: BaseMessage[] }>;
+    return { sonnet, opus, start, resume };
+  };
+
+  const allAnswered = (messages: BaseMessage[]) => {
+    const callIds = messages.flatMap((m) => (m as AIMessage).tool_calls?.map((c) => c.id) ?? []);
+    const resultIds = messages.filter((m) => m instanceof ToolMessage).map((m) => (m as ToolMessage).tool_call_id);
+    return [...resultIds].sort().join() === [...callIds].sort().join();
+  };
+
+  const escalationLogs = () => {
+    const warn = vi.spyOn(logger, 'warn');
+    warn.mockClear();
+    return () => warn.mock.calls.filter(([event]) => event === 'AGENT_ESCALATION').map(([, data]) => data);
+  };
+
+  it('hands the turn to Opus when the step budget runs out', async () => {
+    const logs = escalationLogs();
+    const search = recordingTool('search_products');
+    const sonnetScript = Array.from({ length: STEP_BUDGET + 1 }, (_, i) => toolCall('search_products', { query: `q${i}` }));
+    const { sonnet, opus, start } = setup(sonnetScript, [new AIMessage('Here is what I found.')], [search]);
+    const { messages } = await start();
+    expect(search.runs).toHaveLength(STEP_BUDGET);
+    expect(sonnet.calls).toHaveLength(STEP_BUDGET + 1);
+    expect(opus.calls).toHaveLength(1);
+    expect(lastText(messages)).toBe('Here is what I found.');
+    expect(allAnswered(messages)).toBe(true);
+    expect(logs()).toEqual([{ userId: 'u1', thread: 'esc', reason: 'step_budget', outcome: 'escalated' }]);
+  });
+
+  it('treats a third identical call as a loop, and does not run it', async () => {
+    const logs = escalationLogs();
+    const search = recordingTool('search_products');
+    const same = () => toolCall('search_products', { query: 'shoes', price_max: 50 });
+    const reordered = toolCall('search_products', { price_max: 50, query: 'shoes' });
+    const { opus, start } = setup([same(), same(), reordered], [new AIMessage('Done.')], [search]);
+    const { messages } = await start();
+    expect(search.runs).toHaveLength(2);
+    expect(opus.calls).toHaveLength(1);
+    // Opus sees what was tried, and that the third call was handed over.
+    expect(opus.calls[0]!.some((m) => m instanceof ToolMessage && String(m.content).includes('handing this over'))).toBe(true);
+    expect(logs()).toEqual([{ userId: 'u1', thread: 'esc', reason: 'loop', outcome: 'escalated' }]);
+    expect(allAnswered(messages)).toBe(true);
+  });
+
+  it('escalates when the same tool fails twice in a row', async () => {
+    const logs = escalationLogs();
+    const lookup = flaky('get_order_status', 5);
+    const { opus, start } = setup(
+      [toolCall('get_order_status', { order_id: 'a' }), toolCall('get_order_status', { order_id: 'b' })],
+      [new AIMessage('I could not find it.')],
+      [lookup],
+    );
+    await start();
+    expect(lookup.runs).toHaveLength(2);
+    expect(opus.calls).toHaveLength(1);
+    expect(logs()).toEqual([{ userId: 'u1', thread: 'esc', reason: 'repeated_tool_error', outcome: 'escalated' }]);
+  });
+
+  it('never escalates a normal turn', async () => {
+    const scenarios: { script: AIMessage[]; tools: Recorded[] }[] = [
+      // Two identical calls: a reasonable retry.
+      { script: [toolCall('view_cart'), toolCall('view_cart'), new AIMessage('ok')], tools: [recordingTool('view_cart')] },
+      // One failure, then success.
+      { script: [toolCall('get_order_status', { order_id: 'a' }), toolCall('get_order_status', { order_id: 'a' }), new AIMessage('ok')], tools: [flaky('get_order_status', 1)] },
+      // Failures from different tools.
+      {
+        script: [toolCall('get_order_status', { order_id: 'a' }), toolCall('view_orders'), new AIMessage('ok')],
+        tools: [flaky('get_order_status', 9), flaky('view_orders', 9)],
+      },
+      // A per-user limit refusal twice: retrying won't help, and neither would Opus.
+      { script: [toolCall('add_to_cart', { product_id: 'p1' }), toolCall('add_to_cart', { product_id: 'p2' }), new AIMessage('ok')], tools: [flaky('add_to_cart', 9, true)] },
+      // Exactly the step budget.
+      {
+        script: [...Array.from({ length: STEP_BUDGET }, (_, i) => toolCall('search_products', { query: `q${i}` })), new AIMessage('ok')],
+        tools: [recordingTool('search_products')],
+      },
+    ];
+    for (const { script, tools } of scenarios) {
+      const { opus, start } = setup(script, [], tools);
+      const { messages } = await start();
+      expect(opus.calls, script.map((m) => m.tool_calls?.[0]?.name ?? 'answer').join(',')).toHaveLength(0);
+      expect(lastText(messages)).toBe('ok');
+    }
+  });
+
+  it('does not count a declined confirmation as a failure', async () => {
+    const clear = recordingTool('clear_cart', {}, confirmedMeta);
+    const { opus, start, resume } = setup([toolCall('clear_cart'), toolCall('clear_cart'), new AIMessage('ok')], [], [clear]);
+    await start();
+    await resume(false);
+    await resume(false);
+    expect(clear.runs).toHaveLength(0);
+    expect(opus.calls).toHaveLength(0);
+  });
+
+  it('escalates once: if Opus is stuck too, the turn ends with the support offer', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    warn.mockClear();
+    const search = recordingTool('search_products');
+    const same = () => toolCall('search_products', { query: 'x' });
+    const { sonnet, opus, start } = setup([same(), same(), same()], [same(), same(), same()], [search]);
+    const { messages } = await start();
+    expect(sonnet.calls).toHaveLength(3);
+    expect(opus.calls).toHaveLength(3);
+    expect(search.runs).toHaveLength(4);
+    expect(lastText(messages)).toBe(GIVE_UP_REPLY);
+    expect(allAnswered(messages)).toBe(true);
+    expect(warn).toHaveBeenCalledWith('AGENT_TURN_STOPPED', { userId: 'u1', thread: 'esc', reason: 'loop', escalated: true });
+  });
+
+  it('keeps the confirmation gate for Opus', async () => {
+    const lookup = flaky('get_order_status', 9);
+    const clear = recordingTool('clear_cart', {}, confirmedMeta);
+    const { start, resume } = setup(
+      [toolCall('get_order_status', { order_id: 'a' }), toolCall('get_order_status', { order_id: 'b' })],
+      [toolCall('clear_cart'), new AIMessage('Cleared.')],
+      [lookup, clear],
+    );
+    const paused = await start();
+    expect(paused.__interrupt__).toHaveLength(1);
+    expect(clear.runs).toHaveLength(0);
+    const { messages } = await resume(true);
+    expect(clear.runs).toHaveLength(1);
+    expect(lastText(messages)).toBe('Cleared.');
+  });
+
+  it('goes straight to the support offer when the escalation budget is spent', async () => {
+    const logs = escalationLogs();
+    const same = () => toolCall('view_cart');
+    const { opus, start } = setup([same(), same(), same()], [new AIMessage('never')], [recordingTool('view_cart')], async () => false);
+    const { messages } = await start();
+    expect(opus.calls).toHaveLength(0);
+    expect(lastText(messages)).toBe(GIVE_UP_REPLY);
+    expect(logs()).toEqual([{ userId: 'u1', thread: 'esc', reason: 'loop', outcome: 'over_budget' }]);
+  });
+
+  it('sends Opus the same prompt and tools, with adaptive thinking and medium effort', async () => {
+    const bodies: Record<string, any>[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any -- captured JSON body
+    const fetch = (async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      const message = {
+        id: 'msg_opus',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-opus-5-5',
+        content: [{ type: 'text', text: 'Sorted.' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 2 },
+      };
+      return new Response(JSON.stringify(message), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof globalThis.fetch;
+    const config = { enabled: true, anthropicApiKey: 'test-key', voyageApiKey: '', tracing: { enabled: false, apiKey: '', project: '' } };
+    const same = () => toolCall('view_cart');
+    const graph = buildAgentGraph({
+      model: new ScriptedChatModel([same(), same(), same()]),
+      tools: [recordingTool('view_cart').tool],
+      checkpointer: new MemorySaver(),
+      userId: 'u1',
+      escalation: { model: createEscalationModel(config, { fetch, maxRetries: 0 }), allow: async () => true },
+    });
+    const state = await graph.invoke({ messages: [new HumanMessage('hi')], toolCalls: 0, escalated: false, turnCalls: [] }, { configurable: { thread_id: 'opus' } });
+
+    const body = bodies[0]!;
+    expect(body.model).toBe('claude-opus-5-5');
+    expect(body.system).toEqual([{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }]);
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'medium' });
+    expect(body.tools[0]).toMatchObject({ name: 'view_cart', strict: true });
+    expect(body.tool_choice).toBeUndefined();
+    // The whole visible history: the question, three calls and their results.
+    expect(body.messages.filter((m: { role: string }) => m.role === 'assistant')).toHaveLength(3);
+    expect(lastText(state.messages as BaseMessage[])).toBe('Sorted.');
   });
 });
 
@@ -147,7 +362,7 @@ describe('stream mapping', () => {
       ],
     });
     expect(events(['messages', [chunk, { langgraph_node: 'agent' }]])).toEqual([{ event: 'token', data: { text: 'Hello' } }]);
-    expect(events(['messages', [new AIMessage('Stopped.'), { langgraph_node: 'budget_exceeded' }]])).toEqual([
+    expect(events(['messages', [new AIMessage('Stopped.'), { langgraph_node: 'give_up' }]])).toEqual([
       { event: 'token', data: { text: 'Stopped.' } },
     ]);
     expect(events(['messages', [new ToolMessage({ tool_call_id: 'x', content: '{}' }), { langgraph_node: 'tools' }]])).toEqual([]);

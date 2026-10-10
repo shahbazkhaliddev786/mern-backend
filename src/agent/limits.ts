@@ -15,6 +15,8 @@ export const AGENT_LIMITS = {
   writes: { keyPrefix: 'agent_writes', points: 30, duration: 60 * 60 },
   /** submit_support_request, on top of `writes`: keeps the support inbox usable. */
   support: { keyPrefix: 'agent_support', points: 3, duration: 60 * 60 },
+  /** Stuck turns handed to Opus (spec 015). */
+  escalations: { keyPrefix: 'agent_escalations', points: 10, duration: 24 * 60 * 60 },
 } as const;
 
 export type AgentBudget = keyof typeof AGENT_LIMITS;
@@ -25,7 +27,13 @@ let limiters: AgentLimiters | null = null;
 export function getAgentLimiters(): AgentLimiters {
   if (!limiters) {
     const mongo = (budget: AgentBudget) => new RateLimiterMongo({ storeClient: mongoose.connection, ...AGENT_LIMITS[budget] });
-    limiters = { turnsBurst: mongo('turnsBurst'), turnsDaily: mongo('turnsDaily'), writes: mongo('writes'), support: mongo('support') };
+    limiters = {
+      turnsBurst: mongo('turnsBurst'),
+      turnsDaily: mongo('turnsDaily'),
+      writes: mongo('writes'),
+      support: mongo('support'),
+      escalations: mongo('escalations'),
+    };
   }
   return limiters;
 }

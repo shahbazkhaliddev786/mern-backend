@@ -1,4 +1,5 @@
-// The agent graph (specs 006, 008):  START → agent → [gate →] tools → agent → … → END
+// The agent graph (specs 006, 008, 015):  START → agent → [gate →] tools → agent → … → END
+// A stuck turn goes to `escalate`, which hands the rest of it to Opus once, or to `give_up`.
 // Built per request: the tools close over the verified user's id; their definitions,
 // the system prompt and the model settings are the same for everyone.
 
@@ -11,25 +12,38 @@ import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import logger from '../utils/logger.js';
 import { AGENT_EFFORT, AGENT_MODELS, STEP_BUDGET, type AgentConfig } from './config.js';
-import { REFUSAL_REPLY, STEP_BUDGET_REPLY, SYSTEM_PROMPT } from './prompt.js';
-import { isToolError } from './stream.js';
+import { GIVE_UP_REPLY, REFUSAL_REPLY, SYSTEM_PROMPT } from './prompt.js';
+import { isToolError, visibleText } from './stream.js';
 
 export const AgentState = Annotation.Root({
   ...MessagesAnnotation.spec,
   // Tool calls made in the current turn; the chat service resets it with each new message.
   toolCalls: Annotation<number>({ reducer: (_previous, next) => next, default: () => 0 }),
+  // Spec 015, also reset with each new message: Opus has taken over this turn, and the calls
+  // this turn has run (for loop and repeated-error detection).
+  escalated: Annotation<boolean>({ reducer: (_previous, next) => next, default: () => false }),
+  turnCalls: Annotation<TurnCall[]>({ reducer: (_previous, next) => next, default: () => [] }),
 });
 type State = typeof AgentState.State;
 
 // Spec 001: thinking and effort set explicitly; thinking text isn't shown to customers.
 // clientOptions is for tests that capture the outgoing request.
 export function createChatModel(config: AgentConfig, clientOptions?: ChatAnthropicInput['clientOptions']): ChatAnthropic {
+  return claude('agent', config, clientOptions);
+}
+
+/** Opus for stuck turns (spec 015): same settings, more effort. */
+export function createEscalationModel(config: AgentConfig, clientOptions?: ChatAnthropicInput['clientOptions']): ChatAnthropic {
+  return claude('escalation', config, clientOptions);
+}
+
+function claude(role: 'agent' | 'escalation', config: AgentConfig, clientOptions?: ChatAnthropicInput['clientOptions']): ChatAnthropic {
   return new ChatAnthropic({
-    model: AGENT_MODELS.agent,
+    model: AGENT_MODELS[role],
     apiKey: config.anthropicApiKey,
     maxTokens: 8000,
     thinking: { type: 'adaptive' },
-    outputConfig: { effort: AGENT_EFFORT.agent },
+    outputConfig: { effort: AGENT_EFFORT[role] },
     ...(clientOptions ? { clientOptions } : {}),
   });
 }
@@ -41,6 +55,49 @@ const pendingToolCalls = (message: BaseMessage | undefined) =>
   message instanceof AIMessage || (message && 'tool_calls' in message) ? ((message as AIMessage).tool_calls ?? []) : [];
 
 type ToolCall = { id?: string; name: string; args: Record<string, unknown> };
+
+/** One call this turn ran: its tool, a key for identical calls, and whether it failed. */
+export interface TurnCall {
+  key: string;
+  tool: string;
+  error: boolean;
+}
+
+export type StuckReason = 'loop' | 'step_budget' | 'repeated_tool_error';
+
+// The same call made twice may be a reasonable retry; the third identical one is a loop (Gap 4).
+const MAX_IDENTICAL_CALLS = 2;
+
+const stable = (value: unknown): unknown =>
+  Array.isArray(value)
+    ? value.map(stable)
+    : value && typeof value === 'object'
+      ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable((value as Record<string, unknown>)[key])]))
+      : value;
+const callKey = (call: ToolCall) => `${call.name}:${JSON.stringify(stable(call.args ?? {}))}`;
+
+/** Why the pending calls shouldn't run, if they shouldn't. */
+function stuckBeforeRunning(state: { toolCalls: number; turnCalls: TurnCall[] }, calls: ToolCall[]): StuckReason | null {
+  const seen = new Map<string, number>();
+  for (const key of [...state.turnCalls.map((c) => c.key), ...calls.map(callKey)]) {
+    const count = (seen.get(key) ?? 0) + 1;
+    if (count > MAX_IDENTICAL_CALLS) return 'loop';
+    seen.set(key, count);
+  }
+  return state.toolCalls + calls.length > STEP_BUDGET ? 'step_budget' : null;
+}
+
+/** True when a tool just failed for the second time in a row this turn. */
+function repeatedToolError(turnCalls: TurnCall[], justRan: string[]): boolean {
+  return justRan.some((tool) => {
+    const runs = turnCalls.filter((c) => c.tool === tool);
+    return runs.length >= 2 && runs.at(-1)!.error && runs.at(-2)!.error;
+  });
+}
+
+/** A tool failure, as opposed to a per-user limit refusal (spec 014), which retrying won't fix. */
+const isFailure = (content: BaseMessage['content']) =>
+  isToolError(content) && (JSON.parse(visibleText(content)) as { limited?: boolean }).limited !== true;
 
 /** What the gate shows the customer (spec 008); the resume answer is ConfirmDecision. */
 export interface ConfirmRequest {
@@ -60,6 +117,11 @@ export interface AgentGraphDeps {
   userId: string;
   /** The sentence the customer confirms for a confirm-required call. Must only read. */
   summarize?: (call: ToolCall) => Promise<string>;
+  /**
+   * Opus for stuck turns (spec 015), and the per-user budget check that allows it. Without a
+   * model, a stuck turn goes straight to the support offer.
+   */
+  escalation?: { model: BaseChatModel; allow: () => Promise<boolean> };
 }
 
 const answer = (call: ToolCall, error: string) =>
@@ -67,23 +129,32 @@ const answer = (call: ToolCall, error: string) =>
 
 const threadOf = (config: LangGraphRunnableConfig) => String(config.configurable?.thread_id ?? '');
 
-export function buildAgentGraph({ model, tools, checkpointer, userId, summarize }: AgentGraphDeps) {
-  if (!model.bindTools) throw new Error('The agent model must support tool calling');
-  // Spec 001: strict tools, tool_choice never set (Sonnet 5.5 rejects forced tool use).
+export function buildAgentGraph({ model, tools, checkpointer, userId, summarize, escalation }: AgentGraphDeps) {
+  // Spec 001: strict tools, tool_choice never set (Sonnet 5.5 and Opus 5.5 reject forced tool use).
   // `strict` is a ChatAnthropic option the generic BaseChatModel type doesn't list.
-  const modelWithTools = model.bindTools(tools, { strict: true } as Parameters<NonNullable<BaseChatModel['bindTools']>>[1]);
+  const bind = (chat: BaseChatModel) => {
+    if (!chat.bindTools) throw new Error('The agent model must support tool calling');
+    return chat.bindTools(tools, { strict: true } as Parameters<NonNullable<BaseChatModel['bindTools']>>[1]);
+  };
+  const modelWithTools = bind(model);
+  // Same tools, same prompt, same gate: escalation is a model swap for one turn, not a second agent.
+  const escalationWithTools = escalation ? bind(escalation.model) : null;
   const toolNode = new ToolNode(tools);
   // Read from each tool's metadata (spec 008), so the graph doesn't depend on the tools module.
   const metadataOf = (name: string) =>
     (tools.find((t) => t.name === name) as { metadata?: { kind?: string; confirmRequired?: boolean } } | undefined)?.metadata;
   const needsConfirmation = (call: ToolCall) => metadataOf(call.name)?.confirmRequired === true;
 
-  const agent = async (state: State) => {
-    const response = await modelWithTools.invoke([systemMessage, ...state.messages]);
+  const agent = async (state: State, config: LangGraphRunnableConfig) => {
+    const chat = state.escalated && escalationWithTools ? escalationWithTools : modelWithTools;
+    const response = await chat.invoke([systemMessage, ...state.messages]);
     const meta = response.response_metadata as { stop_reason?: string; stop_details?: { category?: string | null } } | undefined;
     if (meta?.stop_reason === 'refusal') {
-      logger.warn('AGENT_REFUSAL', { userId, category: meta.stop_details?.category ?? null });
+      logger.warn('AGENT_REFUSAL', { userId, category: meta.stop_details?.category ?? null, escalated: state.escalated });
       return { messages: [new AIMessage(REFUSAL_REPLY)] };
+    }
+    if (state.escalated && pendingToolCalls(response).length === 0) {
+      logger.info('AGENT_ESCALATION_RESOLVED', { userId, thread: threadOf(config), toolCalls: state.toolCalls });
     }
     return { messages: [response] };
   };
@@ -104,7 +175,11 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize 
         outcome: isToolError(message.content) ? 'error' : 'ok',
       });
     }
-    return { messages: result.messages, toolCalls: state.toolCalls + calls.length };
+    const ran: TurnCall[] = result.messages.map((message) => {
+      const call = calls.find((c) => c.id === (message as ToolMessage).tool_call_id);
+      return { key: call ? callKey(call) : '', tool: message.name ?? call?.name ?? '', error: isFailure(message.content) };
+    });
+    return { messages: result.messages, toolCalls: state.toolCalls + calls.length, turnCalls: [...state.turnCalls, ...ran] };
   };
 
   // The confirmation gate (spec 008, security.md §6). Only reads before interrupt(): on resume
@@ -124,31 +199,67 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize 
     return new Command({ goto: 'agent', update: { messages: calls.map((c) => answer(c, 'Not run: the customer declined.')) } });
   };
 
-  // Answer every pending tool call (the API needs a result for each), then stop politely.
-  const budgetExceeded = async (state: State) => {
-    logger.warn('AGENT_TURN_STOPPED', { userId, reason: 'step_budget', toolCalls: state.toolCalls });
-    const skipped = pendingToolCalls(state.messages.at(-1)).map(
-      (call) => new ToolMessage({ tool_call_id: call.id ?? '', name: call.name, content: '{"error":"Not run: this turn reached its step limit."}' }),
-    );
-    return { messages: [...skipped, new AIMessage(STEP_BUDGET_REPLY)] };
+  // Why this turn is stuck: pending calls that shouldn't run, or a tool that just failed twice.
+  const stuckReason = (state: State): StuckReason => {
+    const calls = pendingToolCalls(state.messages.at(-1)) as ToolCall[];
+    return calls.length > 0 ? (stuckBeforeRunning(state, calls) ?? 'step_budget') : 'repeated_tool_error';
+  };
+
+  // Every pending tool call gets a result before the next model call (the API needs one for each).
+  const answerPending = (state: State, error: string) => (pendingToolCalls(state.messages.at(-1)) as ToolCall[]).map((call) => answer(call, error));
+
+  // Spec 015: hand the rest of the turn to Opus once, if there is one and the budget allows.
+  const escalate = async (state: State, config: LangGraphRunnableConfig) => {
+    const reason = stuckReason(state);
+    const log = (outcome: 'escalated' | 'over_budget' | 'no_model') =>
+      logger.warn('AGENT_ESCALATION', { userId, thread: threadOf(config), reason, outcome });
+    if (state.escalated) return new Command({ goto: 'give_up' });
+    if (!escalation) {
+      log('no_model');
+      return new Command({ goto: 'give_up' });
+    }
+    if (!(await escalation.allow())) {
+      log('over_budget');
+      return new Command({ goto: 'give_up' });
+    }
+    log('escalated');
+    // Opus continues the turn from the visible history, with a fresh step budget and call record.
+    return new Command({
+      goto: 'agent',
+      update: { messages: answerPending(state, 'Not run: handing this over.'), escalated: true, toolCalls: 0, turnCalls: [] },
+    });
+  };
+
+  // Stop politely and offer human support.
+  const giveUp = async (state: State, config: LangGraphRunnableConfig) => {
+    logger.warn('AGENT_TURN_STOPPED', { userId, thread: threadOf(config), reason: stuckReason(state), escalated: state.escalated });
+    return { messages: [...answerPending(state, 'Not run: this turn was stopped.'), new AIMessage(GIVE_UP_REPLY)] };
   };
 
   const route = (state: State) => {
     const calls = pendingToolCalls(state.messages.at(-1)) as ToolCall[];
     if (calls.length === 0) return END;
-    if (state.toolCalls + calls.length > STEP_BUDGET) return 'budget_exceeded';
+    if (stuckBeforeRunning(state, calls)) return 'escalate';
     return calls.some(needsConfirmation) ? 'gate' : 'tools';
+  };
+
+  // The tool results at the end of the history are the batch that just ran.
+  const afterTools = (state: State) => {
+    const justRan: string[] = [];
+    for (let i = state.messages.length - 1; i >= 0 && state.messages[i] instanceof ToolMessage; i--) justRan.push(state.messages[i]!.name ?? '');
+    return repeatedToolError(state.turnCalls, justRan) ? 'escalate' : 'agent';
   };
 
   return new StateGraph(AgentState)
     .addNode('agent', agent)
     .addNode('gate', gate, { ends: ['tools', 'agent'] })
     .addNode('tools', runTools)
-    .addNode('budget_exceeded', budgetExceeded)
+    .addNode('escalate', escalate, { ends: ['agent', 'give_up'] })
+    .addNode('give_up', giveUp)
     .addEdge(START, 'agent')
-    .addConditionalEdges('agent', route, ['gate', 'tools', 'budget_exceeded', END])
-    .addEdge('tools', 'agent')
-    .addEdge('budget_exceeded', END)
+    .addConditionalEdges('agent', route, ['gate', 'tools', 'escalate', END])
+    .addConditionalEdges('tools', afterTools, ['agent', 'escalate'])
+    .addEdge('give_up', END)
     .compile({ checkpointer });
 }
 

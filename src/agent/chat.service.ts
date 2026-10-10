@@ -8,12 +8,15 @@ import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import logger from '../utils/logger.js';
 import { claimConfirmation, createCheckpointer } from './checkpointer.js';
 import { PROMPT_VERSION, type AgentConfig } from './config.js';
-import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from './graph.js';
+import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMIT } from './graph.js';
+import { consumeBudgets } from './limits.js';
 import { toAgentEvents, toolStartEvent, type AgentEvent } from './stream.js';
 import { buildToolsForRequest, summarizeConfirmation } from './tools/index.js';
 
 export interface ChatDeps {
   createModel: (config: AgentConfig) => BaseChatModel;
+  /** Opus for stuck turns (spec 015). Without it, a stuck turn ends with the support offer. */
+  createEscalationModel?: (config: AgentConfig) => BaseChatModel;
   createCheckpointer: () => BaseCheckpointSaver;
   /** Returns false when the confirmation was already claimed by another request. */
   claimConfirmation: (interruptId: string, thread: string) => Promise<boolean>;
@@ -21,6 +24,7 @@ export interface ChatDeps {
 
 const defaultDeps: ChatDeps = {
   createModel: (config) => createChatModel(config),
+  createEscalationModel: (config) => createEscalationModel(config),
   createCheckpointer: () => createCheckpointer(),
   claimConfirmation: (interruptId, thread) => claimConfirmation(interruptId, thread),
 };
@@ -56,6 +60,16 @@ const isRetryable = (error: unknown) => {
   return status === 429 || status === 529 || (status !== undefined && status >= 500);
 };
 
+// The per-user escalation budget (spec 015). A failed limit store means no escalation.
+async function allowEscalation(userId: string): Promise<boolean> {
+  try {
+    return (await consumeBudgets(userId, ['escalations'])).ok;
+  } catch (error) {
+    logger.error('AGENT_LIMIT_ERROR', { userId, budget: 'escalations', error: error instanceof Error ? error.message : String(error) });
+    return false;
+  }
+}
+
 export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps): AsyncGenerator<AgentEvent> {
   const threadId = turn.threadId ?? crypto.randomUUID();
   const thread = checkpointThreadId(turn.userId, threadId);
@@ -71,6 +85,9 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
       checkpointer: deps.createCheckpointer(),
       userId: turn.userId,
       summarize: (call) => summarizeConfirmation(ctx, call),
+      ...(deps.createEscalationModel
+        ? { escalation: { model: deps.createEscalationModel(turn.config), allow: () => allowEscalation(turn.userId) } }
+        : {}),
     });
 
     const pending = (await graph.getState({ configurable: { thread_id: thread } })).tasks.flatMap((task) => task.interrupts ?? []);
@@ -102,8 +119,8 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
         yield { event: 'done', data: { threadId } };
         return;
       }
-      // A new message starts a new turn, so the step counter starts again.
-      input = { messages: [new HumanMessage(turn.message ?? '')], toolCalls: 0 };
+      // A new message starts a new turn: the step counter, call record and escalation start again.
+      input = { messages: [new HumanMessage(turn.message ?? '')], toolCalls: 0, escalated: false, turnCalls: [] };
     }
 
     const stream = await graph.stream(

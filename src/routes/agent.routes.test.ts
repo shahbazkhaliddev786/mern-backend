@@ -78,11 +78,14 @@ async function start(router: express.Router) {
 let withTestAuth = '';
 let withRealAuth = '';
 let withProbe = '';
+let withEscalation = '';
+let opusModel: ScriptedChatModel;
 
 beforeAll(async () => {
   withTestAuth = await start(createAgentRouter({ deps, auth: testAuth }));
   withRealAuth = await start(createAgentRouter({ deps }));
   withProbe = await start(createAgentRouter({ deps, auth: testAuth, streamProbeEnabled: true }));
+  withEscalation = await start(createAgentRouter({ deps: { ...deps, createEscalationModel: () => opusModel }, auth: testAuth }));
 });
 afterAll(() => servers.forEach((server) => server.close()));
 
@@ -448,6 +451,44 @@ describe('per-user limits (spec 014)', () => {
     const refused = await send('application/pdf');
     expect(refused.status).toBe(429);
     expect(((await refused.json()) as { message: string }).message).toMatch(/^You've made a lot of changes in a short time\./);
+  });
+});
+
+describe('Opus escalation over HTTP (spec 015)', () => {
+  const loop = () => [toolCall('search_products', { query: 'x' }), toolCall('search_products', { query: 'x' }), toolCall('search_products', { query: 'x' })];
+
+  it('streams the "closer look" status, then Opus\'s answer', async () => {
+    model = new ScriptedChatModel(loop());
+    opusModel = new ScriptedChatModel([new AIMessage('Here you go.')]);
+    const events = await readEvents(await post(withEscalation, { message: 'find it' }, 'u1'));
+    const names = events.map((e) => e.event);
+    const status = events.findIndex((e) => e.event === 'tool_start' && e.data.tool === 'escalation');
+    expect(events[status]!.data).toEqual({ tool: 'escalation', label: 'Taking a closer look…' });
+    expect(names.indexOf('token')).toBeGreaterThan(status);
+    expect(events.filter((e) => e.event === 'token').map((e) => e.data.text).join('')).toBe('Here you go.');
+    expect(names.at(-1)).toBe('done');
+  });
+
+  it('streams the support offer when there is no escalation model', async () => {
+    model = new ScriptedChatModel(loop());
+    const events = await readEvents(await post(withTestAuth, { message: 'find it' }, 'u1'));
+    const text = events.filter((e) => e.event === 'token').map((e) => e.data.text).join('');
+    expect(text).toContain('I can send your request to our support team');
+    expect(events.some((e) => e.event === 'tool_start' && e.data.tool === 'escalation')).toBe(false);
+  });
+
+  it('skips Opus when the escalation budget is spent or its store fails', async () => {
+    const spent = memoryLimiters({ escalations: 1 });
+    await spent.escalations.consume('u1');
+    const broken = { ...memoryLimiters(), escalations: { consume: async () => Promise.reject(new Error('mongo down')) } };
+    for (const limiters of [spent, broken]) {
+      setAgentLimiters(limiters);
+      model = new ScriptedChatModel(loop());
+      opusModel = new ScriptedChatModel([new AIMessage('never')]);
+      const events = await readEvents(await post(withEscalation, { message: 'find it' }, 'u1'));
+      expect(opusModel.calls).toHaveLength(0);
+      expect(events.filter((e) => e.event === 'token').map((e) => e.data.text).join('')).toContain('our support team');
+    }
   });
 });
 

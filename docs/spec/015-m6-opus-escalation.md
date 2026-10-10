@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M6 — Hardening ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -71,7 +71,7 @@ When a turn gets stuck — the step budget runs out, the agent repeats the same 
 
 **Escalation** (new node `escalate`):
 1. **Not yet escalated this turn:**
-   - It takes one point from the `escalations` budget. Open question 1 covers the number.
+   - It takes one point from the `escalations` budget: 10 per account per day.
    - **Points left:** it sets `escalated: true` and resets `toolCalls`, then goes back to `agent`, which now calls the Opus model. Opus has the same tools (bound with `strict: true`), the same system prompt block and the same gate.
    - **Budget spent, or the limit store fails:** it goes to `give_up`.
 2. **Already escalated** (Opus is stuck too) → `give_up`.
@@ -100,42 +100,42 @@ The `budget_exceeded` node and `STEP_BUDGET_REPLY` are replaced by `escalate` an
 
 ## Tasks
 
-- [ ] `AgentState`: `escalated`, `turnCalls`; chat service resets them per message
-- [ ] Trigger checks in `route` and after `tools`; `limited: true` on limit refusals (`write-limit.ts`)
-- [ ] `escalate` and `give_up` nodes; `escalationModel` in the graph; `createEscalationModel`; `ChatDeps`
-- [ ] `escalations` budget in `limits.ts`
-- [ ] Stream: escalation status, `give_up` as a speaking node
-- [ ] Audit logs
-- [ ] Tests (below)
-- [ ] Update `security.md` §10 (the escalation budget), `phases.md` §0 and the spec index
+- [x] `AgentState`: `escalated`, `turnCalls`; chat service resets them per message
+- [x] Trigger checks in `route` and after `tools`; `limited: true` on limit refusals (`write-limit.ts`)
+- [x] `escalate` and `give_up` nodes; `escalationModel` in the graph; `createEscalationModel`; `ChatDeps`
+- [x] `escalations` budget in `limits.ts`
+- [x] Stream: escalation status, `give_up` as a speaking node
+- [x] Audit logs
+- [x] Tests (below)
+- [x] Update `security.md` §10 (the escalation budget), `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] **Each trigger escalates with the right reason, and Opus finishes the turn:**
-  - [ ] 9 tool calls in a turn → `step_budget`.
-  - [ ] A third identical call → `loop`, and the third call isn't run.
-  - [ ] The same tool erroring twice in a row → `repeated_tool_error`.
-  - [ ] In each case Opus answers, and the second model's calls go to the Opus model.
-  - [ ] Covered by graph tests.
-- [ ] **Normal turns never escalate:**
-  - [ ] two identical calls
-  - [ ] one tool error, then success
-  - [ ] errors from different tools
-  - [ ] a declined confirmation
-  - [ ] a per-user limit refusal twice
-  - [ ] 8 calls exactly
-  - [ ] Covered by graph tests.
-- [ ] **Escalates once:** Opus stuck as well → `give_up` with the support offer, and no third model — graph test
-- [ ] **Same tools and gate:** a confirm-required call made by Opus pauses for confirmation and runs only on approval — graph test
-- [ ] **Budget:** with the escalation budget spent, a stuck turn goes straight to `give_up` and Opus isn't called; a limit-store failure does the same — graph tests
-- [ ] **History stays valid:** every `tool_use` in an escalated or given-up turn has a result — graph test
-- [ ] **The request sent to Opus:** model `claude-opus-5-5`, adaptive thinking, effort `medium`, strict tools, no `tool_choice`, and the cached system prompt first — request-capture test
-- [ ] **Over HTTP:**
-  - [ ] An escalated turn streams `tool_start { tool: 'escalation' }`, then Opus's answer.
-  - [ ] A given-up turn streams the support offer as tokens.
-  - [ ] Covered by HTTP tests.
-- [ ] **Audit logs** carry the reason and outcome, and no message text — test
-- [ ] **Checks:** backend lint 0 errors, build, `npm test` with and without `MONGO_URL`
+- [x] **Each trigger escalates with the right reason, and Opus finishes the turn:**
+  - [x] 9 tool calls in a turn → `step_budget`.
+  - [x] A third identical call → `loop`, and the third call isn't run.
+  - [x] The same tool erroring twice in a row → `repeated_tool_error`.
+  - [x] In each case Opus answers, and the second model's calls go to the Opus model.
+  - [x] Covered by graph tests.
+- [x] **Normal turns never escalate:**
+  - [x] two identical calls
+  - [x] one tool error, then success
+  - [x] errors from different tools
+  - [x] a declined confirmation
+  - [x] a per-user limit refusal twice
+  - [x] 8 calls exactly
+  - [x] Covered by graph tests.
+- [x] **Escalates once:** Opus stuck as well → `give_up` with the support offer, and no third model — graph test
+- [x] **Same tools and gate:** a confirm-required call made by Opus pauses for confirmation and runs only on approval — graph test
+- [x] **Budget:** with the escalation budget spent, a stuck turn goes straight to `give_up` and Opus isn't called; a limit-store failure does the same — graph tests
+- [x] **History stays valid:** every `tool_use` in an escalated or given-up turn has a result — graph test
+- [x] **The request sent to Opus:** model `claude-opus-5-5`, adaptive thinking, effort `medium`, strict tools, no `tool_choice`, and the cached system prompt first — request-capture test
+- [x] **Over HTTP:**
+  - [x] An escalated turn streams `tool_start { tool: 'escalation' }`, then Opus's answer.
+  - [x] A given-up turn streams the support offer as tokens.
+  - [x] Covered by HTTP tests.
+- [x] **Audit logs** carry the reason and outcome, and no message text — test
+- [x] **Checks:** backend lint 0 errors, build, `npm test` 189 + 30 skipped / 219 with `MONGO_URL` and `ATLAS_URL`
 
 ## Test plan
 
@@ -146,14 +146,38 @@ The `budget_exceeded` node and `STEP_BUDGET_REPLY` are replaced by `escalate` an
 
 ## Open questions
 
-1. **The escalation budget.** I propose **10 escalations per account per day.**
-   - Escalations should be rare. evals.md wants precision ≥ 0.9, so a normal customer should almost never use one.
-   - An Opus turn costs several times a Sonnet turn, so this caps the worst case at about 10 extra Opus turns per account per day. Past that, a stuck turn goes straight to the support offer.
-2. **Show customers that something changed?**
-   - **Recommended:** the status label "Taking a closer look…" while Opus works. An escalated turn takes noticeably longer, and an unexplained pause looks broken.
-   - **Alternative:** no visible signal.
+_None — resolved 2026-10-10, see the decision log._
+
+## Results
+
+**2026-10-10** — backend only.
+- **Files:**
+  - `src/agent/graph.ts`: turn state, triggers, the `escalate` and `give_up` nodes, `createEscalationModel`
+  - `chat.service.ts`: the escalation model and budget check, plus the per-turn reset
+  - `stream.ts`: the status label; `give_up` speaks
+  - `limits.ts`: the `escalations` budget
+  - `tools/write-limit.ts`: limit refusals are marked `limited`
+  - `prompt.ts`: `GIVE_UP_REPLY` replaces `STEP_BUDGET_REPLY`
+- **New tests (12):** 9 graph tests, covering:
+  - the three triggers
+  - five normal-turn scenarios that don't escalate
+  - a declined confirmation
+  - Opus stuck too
+  - the gate under Opus
+  - the budget being spent
+  - the request sent to Opus
+
+  Plus 3 HTTP tests. Two existing graph tests now use distinct arguments, since identical calls are a loop now.
+- **Request to Opus** (captured): `claude-opus-5-5`, the cached system prompt first, adaptive thinking, effort `medium`, strict tools, no `tool_choice`, and the whole visible history.
+- **Not yet seen:** a real Opus turn after a Sonnet one, including the API dropping Sonnet's thinking blocks as tech-stack.md describes. That's parked with the other live checks (API key). The trigger-precision and resolve-rate evals are M7's.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved with the defaults: 10 escalations per account per day, and the "Taking a closer look…" status while Opus works | Owner's choice |
+| 2026-10-10 | When Opus takes over, the call record restarts along with the step count | Opus gets a fresh start on all three triggers; otherwise one retry of a call Sonnet made twice would count as a loop straight away |
+| 2026-10-10 | When both triggers apply to the same calls, `loop` is reported before `step_budget` | It's the more specific reason |
+| 2026-10-10 | A limit refusal carries `limited: true` in its result, and a failed limit store gets the same marker | Neither is fixed by retrying or by Opus, so neither counts toward `repeated_tool_error` |
+| 2026-10-10 | A failed escalation-budget store means no escalation (logged), so the turn goes to the support offer | Same rule as spec 014: a failed limit store refuses rather than lets through |
+| 2026-10-10 | `PROMPT_VERSION` stays at 6 | Neither the system prompt nor the tool list changed; the support offer is a fixed reply, not part of the prompt |

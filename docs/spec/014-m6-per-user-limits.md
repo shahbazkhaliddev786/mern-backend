@@ -6,7 +6,7 @@
 | **Milestone** | M6 — Hardening ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | `b145da2` + `mern-frontend` `e1383c4` |
 | **Repo** | `mern-backend` (limits); one small change in `mern-frontend` (the "slow down" message) |
 
 ## Goal

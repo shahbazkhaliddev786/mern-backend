@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | In progress |
 | **Milestone** | M1 — Spikes & foundations ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -95,38 +95,69 @@ Each check runs against the SDK control too (C1–C4, C6–C11); the C5 refusal 
 
 ## Tasks
 
-- [ ] `npm ci --legacy-peer-deps` in the backend; confirm the versions in the Context table
-- [ ] Add `spikes` to `globalIgnores` in `eslint.config.mjs`
-- [ ] Capture `fetch` + result recorder (`spikes/001-binding-check/capture.ts`)
-- [ ] Checks C1–C12 against `ChatAnthropic` and the SDK control
-- [ ] C13 deepeval import/run
-- [ ] Write `results.md`
-- [ ] Apply the decision rule; record it in the decision log
-- [ ] Update `tech-stack.md` Layer 3 "Binding check" with the outcome
-- [ ] Update the `docs/spec/README.md` index and this spec's status
+- [x] `npm ci --legacy-peer-deps` in the backend; confirm the versions in the Context table
+- [x] Add `spikes` to `globalIgnores` in `eslint.config.mjs`
+- [x] Capture `fetch` + result recorder (`spikes/001-binding-check/capture.ts`)
+- [x] Checks C1–C12 against `ChatAnthropic` and the SDK control
+- [x] C13 deepeval import/run
+- [x] Write `results-offline.md`
+- [ ] Live run: `results-live.md` (needs `ANTHROPIC_API_KEY`)
+- [x] Apply the decision rule; record it in the decision log
+- [x] Update `tech-stack.md` Layer 3 "Binding check" with the outcome
+- [x] Update the `docs/spec/README.md` index and this spec's status
 
 ## Acceptance criteria
 
-- [ ] Every check C1–C13 has a result with evidence in `results.md` — verified by reading it
-- [ ] For every failing check, the SDK control shows whether the fault is the binding or the API — verified in `results.md`
-- [ ] The binding decision is stated in the decision log with the checks it rests on
-- [ ] `tech-stack.md` Layer 3 says which binding M2 uses
-- [ ] `npm run lint` and `npm run build` still pass (spike code is excluded from both) — verified by running them
+- [x] Every check C1–C13 has a result with evidence in `results.md` — verified by reading `results-offline.md`; `results-live.md` still to come
+- [x] For every failing check, the SDK control shows whether the fault is the binding or the API — the only failure (C13) is a deepeval packaging fault, isolated by rerunning with the stale file moved aside
+- [x] The binding decision is stated in the decision log with the checks it rests on
+- [x] `tech-stack.md` Layer 3 says which binding M2 uses
+- [x] `npm run lint` and `npm run build` still pass (spike code is excluded from both) — lint 0 errors (106 existing `any` warnings), build clean, `npm test` 51/51
 
 ## Test plan
 
-This spec is itself a test. Each acceptance criterion is checked by running `npx tsx spikes/001-binding-check/run.ts` once with `ANTHROPIC_API_KEY` set, then reading `results.md`. C5 and C13 need no API key.
+This spec is itself a test, run from `mern-backend/`:
+
+- Offline (no key): `npx tsx spikes/001-binding-check/run.ts --offline` → `results-offline.md`
+- Live: `ANTHROPIC_API_KEY=... npx tsx spikes/001-binding-check/run.ts` → `results-live.md`
+
+C5 is mocked and C13 calls no model in both modes. The runner exits non-zero if any check fails.
 
 ## Open questions
 
-- **API key:** `ANTHROPIC_API_KEY` must be available where the spike runs. Run it in this cloud session (set the key as an environment secret) or locally?
-- **Spike code after the decision:** delete `spikes/001-binding-check/` once the spec closes (results kept here), or keep it as a regression check to rerun when `@langchain/anthropic` is upgraded? Recommendation: keep it — it's the cheapest way to re-verify an upgrade.
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the checks run._
+**Offline run, 2026-10-10** — full table with evidence in [`spikes/001-binding-check/results-offline.md`](../../spikes/001-binding-check/results-offline.md).
+
+| Check | ChatAnthropic | How |
+|---|---|---|
+| C1 adaptive thinking + effort | pass | first-class `thinking` and `outputConfig` options; no `budget_tokens` sent |
+| C2 explicit effort on Haiku / Opus 5.5 | pass | same options |
+| C3 strict tools | pass | `bindTools(tools, { strict: true })`; Zod schema arrives with `additionalProperties: false` and `required` |
+| C4 tool_choice never forced | pass, note | nothing sent by default; `'auto'` sent as `{ type: 'auto' }`. `withStructuredOutput` doesn't force a tool when thinking is on, but warns it may throw if the model skips the tool — use `outputConfig.format` for JSON output |
+| C5 refusal | pass | `response_metadata.stop_reason === 'refusal'`, `response_metadata.stop_details.category` |
+| C6 thinking round-trip | pass | resent byte-identical with its signature |
+| C7 replay to Opus 5.5 | pass | the binding sends the blocks unchanged; the API drops them |
+| C8 `display: 'updates'` | pass | first-class `thinking.display` + `betas` → `anthropic-beta` header; notes arrive as thinking blocks |
+| C9 mid-conversation system | pass | a leading `SystemMessage` goes to top-level `system`; a later one stays in place as `role: 'system'` |
+| C10 caching | pass, note | `cache_control` on a system content block is sent; `usage_metadata.input_token_details.cache_read` reported. A real cache hit needs the live run |
+| C11 fallbacks | pass, note | no first-class option: `invocationKwargs: { fallbacks: 'default' }` + `betas` |
+| C12 streaming | pass | `.stream()` and `streamEvents` v2: text, thinking (with signature) and tool calls assemble correctly |
+| C13 deepeval | **fail as installed** | not `@langchain/core`: deepeval 0.9.20–0.9.22 (0.9.22 is the latest) ship a stale `dist/telemetry.js` next to `dist/telemetry/`. Node resolves `require("../telemetry")` to the stale file, which requires the undeclared `@sentry/node` and lacks the functions the metrics call. With that file moved aside, all three C13 tests pass — a deterministic `ToolCorrectnessMetric`, the `toPass` Vitest matcher, and the LangChain callback handler on `@langchain/core` 1.2.17. `@sentry/node` isn't needed then |
+
+Also found: every DeepEval metric [`evals.md`](../shopping-agent/evals.md) §3 marks "confirm TS export" (`FaithfulnessMetric`, `ContextualPrecisionMetric`, `ContextualRecallMetric`, `ContextualRelevancyMetric`, `ToolCorrectnessMetric`) is exported by `deepeval/metrics` 0.9.22.
+
+**Live run:** pending an `ANTHROPIC_API_KEY`. It adds what offline can't show: the API accepting each request with a 200, a real cache hit (C10) and real thinking signatures (C6/C7).
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved. Keep `spikes/001-binding-check/` after the spec closes | Cheapest way to re-verify the binding when `@langchain/anthropic` is upgraded |
+| 2026-10-10 | Two run modes: `--offline` serves mocked API responses from the capture `fetch`; live mode calls the API | No `ANTHROPIC_API_KEY` in the cloud session. Offline mode still proves what the binding sends and how it parses responses (C1–C9, C11–C13); live mode adds what only the API can answer (accepted with 200, real caching in C10, real thinking signatures). Live run happens once a key is set as an environment secret |
+| 2026-10-10 | **M2 uses `ChatAnthropic`.** All seven deciding checks pass (C1, C3, C4, C5, C6, C9, C12). Usage rules for M2: set `thinking` and `outputConfig.effort` explicitly; `bindTools(..., { strict: true })`; never `tool_choice` `any`/`tool`; no default-method `withStructuredOutput` (use `outputConfig.format`); per-request facts as a mid-conversation `SystemMessage`; read refusals from `response_metadata`; pass refusal fallbacks via `invocationKwargs` + `betas` | Offline run: the binding sends every required field correctly and parses every response shape. Wire behaviour is deterministic, so the live run confirms acceptance rather than changing the choice; if it shows a 400 on any deciding check, this decision is reopened |
+| 2026-10-10 | No upgrade needed: the nested `@anthropic-ai/sdk` 0.122.0 isn't a problem | The binding builds the request body itself, and every new field (effort, adaptive thinking, display, strict) reached the wire |
+| 2026-10-10 | **deepeval stays in the backend; no separate evals package.** When evals are built, delete the stale `node_modules/deepeval/dist/telemetry.js` in a `postinstall` step (or pin a fixed release once one exists) and set `DEEPEVAL_TELEMETRY_OPT_OUT=YES` | The `@langchain/core` peer mismatch is harmless (an optional peer; the integration works on 1.2.17). The real fault is the stale file, and an isolated package would ship the same file |
+| 2026-10-10 | C13 runs under its own `vitest.config.ts` in the spike folder | So the backend's `npm test` never picks the spike up |

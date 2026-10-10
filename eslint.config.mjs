@@ -5,7 +5,7 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 import eslintConfigPrettier from 'eslint-config-prettier';
 
 export default defineConfig([
-  globalIgnores(['dist', 'node_modules', 'coverage', 'logs']),
+  globalIgnores(['dist', 'node_modules', 'coverage', 'logs', 'spikes']),
   {
     files: ['**/*.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommended, eslintConfigPrettier],

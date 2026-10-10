@@ -4,7 +4,7 @@
 >
 > Companion to [`architecture.md`](./architecture.md), [`tech-stack.md`](./tech-stack.md), [`observability.md`](./observability.md), [`security.md`](./security.md).
 >
-> _Note: DeepEval's TypeScript SDK is **beta**. Metric names/imports below are from the current TS docs where confirmed and marked "confirm export" where ported from the Python SDK; fallback is LangSmith evals. API to re-verify at implementation time._
+> _Note: DeepEval's TypeScript SDK is **beta**. Every metric named below is exported by `deepeval/metrics` 0.9.22 (checked in [spec 001](../spec/001-m1-langchain-binding-check.md)); fallback is LangSmith evals. Releases 0.9.20–0.9.22 ship a stale `dist/telemetry.js` that breaks imports until it's deleted — see spec 001's decision log._
 
 ---
 
@@ -46,9 +46,9 @@ Each agent capability → metric(s) → **type** → threshold. *Type matters mo
 **Test-case fields we use:** `input`, `actualOutput`, `expectedOutput`, `retrievalContext` (the chunks from the RAG trace), `toolsCalled`, `expectedTools`.
 
 **Metrics we use:**
-- Retrieval: `ContextualPrecisionMetric`, `ContextualRecallMetric`, `ContextualRelevancyMetric` *(confirm TS export)*
-- Generation: `FaithfulnessMetric` *(confirm TS export)*, `AnswerRelevancyMetric` ✅
-- Agent: `ToolCorrectnessMetric` *(confirm TS export)*, `TaskCompletionMetric` ✅, `StepEfficiencyMetric` ✅
+- Retrieval: `ContextualPrecisionMetric`, `ContextualRecallMetric`, `ContextualRelevancyMetric`
+- Generation: `FaithfulnessMetric`, `AnswerRelevancyMetric` ✅
+- Agent: `ToolCorrectnessMetric`, `TaskCompletionMetric` ✅, `StepEfficiencyMetric` ✅
 - Custom: `GEval` ✅ — LLM-judge with a written rubric, for safety and any subjective criterion
 
 ---
@@ -206,9 +206,9 @@ import "deepeval/vitest";
 import { LLMTestCase } from "deepeval/test-case";
 import { EvaluationDataset, Golden } from "deepeval/dataset";
 import {
-  FaithfulnessMetric,          // confirm TS export
+  FaithfulnessMetric,         
   AnswerRelevancyMetric,
-  ContextualPrecisionMetric,   // confirm TS export
+  ContextualPrecisionMetric,  
 } from "deepeval/metrics";
 
 const dataset = new EvaluationDataset({
@@ -239,7 +239,7 @@ it.each(dataset.goldens as Golden[])("store-knowledge RAG #%$", async (golden) =
 
 **Deterministic tool-correctness (no LLM-judge):**
 ```typescript
-import { ToolCorrectnessMetric } from "deepeval/metrics"; // confirm TS export
+import { ToolCorrectnessMetric } from "deepeval/metrics";
 
 it("search extracts correct filters", async () => {
   const { toolsCalled } = await runAgent("show me running shoes under $50 in stock");

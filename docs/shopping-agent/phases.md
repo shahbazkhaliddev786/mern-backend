@@ -12,7 +12,7 @@ _As of 2026-10-10._
 
 | Milestone | Goal | Status |
 |---|---|---|
-| **M1** — Spikes & foundations | Settle the two unknowns that decide how everything else is built | ⬜ Not started |
+| **M1** — Spikes & foundations | Settle the two unknowns that decide how everything else is built | 🟡 In progress — binding chosen offline ([spec 001](../spec/001-m1-langchain-binding-check.md)), live run pending |
 | **M2** — Agent core, read-only | A signed-in user can ask about products, cart, orders and profile through the API | ⬜ Not started |
 | **M3** — Chat UI | The same, from a chat panel in the store, with a confirm card ready for M4 | ⬜ Not started |
 | **M4** — Write tools + confirmation gate | The agent changes the cart, checks out, updates the profile and contacts support, asking first where the rule says so | ⬜ Not started |

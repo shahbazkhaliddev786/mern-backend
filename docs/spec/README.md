@@ -27,4 +27,4 @@ Add a row when a spec is created; update its status as it moves.
 
 | # | Spec | Milestone | Status | Closed by |
 |---|---|---|---|---|
-| 001 | [LangChain binding check](./001-m1-langchain-binding-check.md) | M1 | Draft | — |
+| 001 | [LangChain binding check](./001-m1-langchain-binding-check.md) | M1 | In progress | — |

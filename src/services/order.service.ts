@@ -231,6 +231,13 @@ export const getMyOrders = async (userId: string): Promise<IOrder[]> => {
     .lean();
 };
 
+// Owner-scoped lookup for the agent's get_order_status: another user's order and a
+// missing one both return null, so order ids can't be probed (security.md §4).
+export const getMyOrderById = async (userId: string, orderId: string): Promise<IOrder | null> => {
+  if (!mongoose.Types.ObjectId.isValid(orderId)) return null;
+  return await Order.findOne({ _id: orderId, user: userId }).select('-__v').lean<IOrder>();
+};
+
 export const getOrderById = async (orderId: string) => {
   const order = await Order.findById(orderId)
     .populate('user', 'name email')

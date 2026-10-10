@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Approved |
 | **Milestone** | M2 — Agent core, read-only ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -132,7 +132,7 @@ START → agent → (tool calls?) → tools → agent → … → END
 
 ## Open questions
 
-- **Model for tests in CI:** all automated tests use the scripted model (free, deterministic). Real-model checks stay manual until M7's eval suite. OK?
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
@@ -142,3 +142,4 @@ _Filled in when the work is done._
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved ("code m2"). Automated tests use a scripted model only; real-model checks stay manual until M7 | Free and deterministic in CI; no API key needed |

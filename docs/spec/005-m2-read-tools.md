@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M2 — Agent core, read-only ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -83,26 +83,26 @@ export const READ_TOOL_NAMES = [...] as const
 
 ## Tasks
 
-- [ ] `untrusted.ts` + output helpers
-- [ ] `product-query.schema.ts`
-- [ ] `getAllProductsService`: optional `inStock`
-- [ ] `getMyOrderById` in `order.service.ts`
-- [ ] The six tool files and `buildToolsForRequest`
-- [ ] Unit tests (below)
-- [ ] Update the spec index and `phases.md` §0
+- [x] `untrusted.ts` + output helpers (one file: `src/agent/tools/helpers.ts`)
+- [x] `product-query.schema.ts`
+- [x] `getAllProductsService`: optional `inStock`
+- [x] `getMyOrderById` in `order.service.ts`
+- [x] The six tool files and `buildToolsForRequest`
+- [x] Unit tests (below)
+- [x] Update the spec index and `phases.md` §0
 
 ## Acceptance criteria
 
-- [ ] No tool schema contains a `userId`, `user_id` or `user` property at any depth — test walks every tool's JSON schema
-- [ ] Every service call receives `ctx.userId` from the closure — tests with two contexts assert each call used its own id
-- [ ] `get_order_status` for another user's order and for a missing order return the identical error — test against the owner-scoped query
-- [ ] `search_products` with `query: "("` or `"a.*b"` doesn't throw and matches literally — test
-- [ ] Category/brand names resolve to ids; unknown names come back in `unknownCategories` / `unknownBrands` — test
-- [ ] Zod rejects out-of-range or malformed arguments (negative price, page 0, bad id, query over 100 chars) — test
-- [ ] Product descriptions are wrapped, and a description containing `</untrusted_content>` can't close the wrapper — test
-- [ ] Tool definitions are identical across contexts (name, description, JSON schema) — test
-- [ ] REST behaviour unchanged: existing tests pass; `getAllProductsService` without `inStock` builds the same query as before — test
-- [ ] `npm run lint` (0 errors), `npm run build`, `npm test` pass
+- [x] No tool schema contains a `userId`, `user_id` or `user` property at any depth — `tools.test.ts` walks every tool's JSON schema
+- [x] Every service call receives `ctx.userId` from the closure — two contexts, each call checked against its own id
+- [x] `get_order_status` for another user's order and for a missing order return the identical error — unit test, and against MongoDB with two real users
+- [x] `search_products` with `query: "("` or `"a.*b"` doesn't throw and matches literally — unit test (escaped arg) and MongoDB (`(Runner)` finds one product, `.*` finds none)
+- [x] Category/brand names resolve to ids; unknown names come back in `unknownCategories` / `unknownBrands` — tests; when every requested name is unknown, no search runs
+- [x] Zod rejects out-of-range or malformed arguments (negative price, page 0, bad id, query over 100 chars, unknown sort) — test
+- [x] Product descriptions are wrapped, and a description containing `</untrusted_content>` can't close the wrapper — test
+- [x] Tool definitions are identical across contexts (name, description, JSON schema, metadata) — test
+- [x] REST behaviour unchanged: existing tests pass; without `inStock` the service still returns sold-out products — MongoDB test
+- [x] `npm run lint` (0 errors), `npm run build`, `npm test` pass
 
 ## Test plan
 
@@ -110,13 +110,23 @@ Unit tests in `src/agent/tools/*.test.ts`, mocking the models/services the way t
 
 ## Open questions
 
-- **Result page size:** `search_products` returns 8 per page (the site shows 9). Fewer results keep the model's context small and replies readable; the customer can ask for more. OK with 8?
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the work is done._
+**2026-10-10**
+- `npm test`: 78 passed, 6 skipped (the MongoDB file skips without `MONGO_URL`). With `MONGO_URL=mongodb://127.0.0.1:27017` (local MongoDB 7): **84/84**.
+- New: `src/agent/tools/tools.test.ts` (20 unit tests, services mocked) and `tools.mongo.test.ts` (6 tests against real queries).
+- Lint 0 errors, still 106 warnings (all existing); `npm run build` clean.
+
+Files: `src/agent/tools/{types,helpers,index,search-products,get-product-details,view-cart,view-orders,get-order-status,view-profile}.ts`, `src/validations/product-query.schema.ts`; `getAllProductsService` gains `inStock`; `order.service.ts` gains `getMyOrderById`.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved ("code m2"). `search_products` returns 8 results per page | Keeps the model's context small and replies readable; the customer can ask for more |
+| 2026-10-10 | `untrusted()` and the output helpers live together in `src/agent/tools/helpers.ts` | Small enough for one file; nothing else imports them yet |
+| 2026-10-10 | When every requested category (or brand) name is unknown, `search_products` returns no results plus the unknown names instead of searching the whole catalog | Searching everything would answer a different question than the customer asked |
+| 2026-10-10 | Cart items whose product was deleted are left out of `view_cart` | The populated product is `null`; there's nothing to show or price |
+| 2026-10-10 | The two test helpers that parse tool JSON keep `Record<string, any>` with a lint-disable comment | Assertions read nested fields freely; typing every shape would add casts without catching anything |

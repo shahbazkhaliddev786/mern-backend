@@ -210,6 +210,21 @@ describe('POST /agent/chat — confirmation (spec 008)', () => {
     expect(fakeTools.clearRuns).toHaveLength(0);
   });
 
+  it('a new message while a confirmation waits is refused without calling the model, and the confirmation still works', async () => {
+    model = new ScriptedChatModel([toolCall('clear_cart'), new AIMessage('Your cart is empty now.')]);
+    const { threadId, interruptId } = await pauseOnClearCart();
+    const callsBefore = model.calls.length;
+
+    const refused = await readEvents(await post(withTestAuth, { message: 'actually, show my orders', threadId }, 'u1'));
+    expect(refused.map((e) => e.event)).toEqual(['error', 'done']);
+    expect(refused[0]!.data).toEqual({ message: 'Please confirm or cancel the pending action first.', retryable: false });
+    expect(model.calls.length).toBe(callsBefore);
+
+    const confirmed = await readEvents(await resume(threadId, interruptId, true));
+    expect(confirmed.map((e) => e.event)).toEqual(['tool_start', 'tool_end', 'token', 'done']);
+    expect(fakeTools.clearRuns).toHaveLength(1);
+  });
+
   it('rejects a malformed resume body with 400', async () => {
     expect((await post(withTestAuth, { resume: { interruptId: 'x', approved: true } }, 'u1')).status).toBe(400); // no threadId
     expect((await post(withTestAuth, { threadId: crypto.randomUUID(), resume: { interruptId: 'x', approved: 'yes' } }, 'u1')).status).toBe(400);

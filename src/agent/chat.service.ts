@@ -46,6 +46,7 @@ export const checkpointThreadId = (userId: string, threadId: string) => `${userI
 
 const NOTHING_PENDING = "There's nothing waiting for confirmation.";
 const ALREADY_CONFIRMED = 'That was already confirmed.';
+const CONFIRM_FIRST = 'Please confirm or cancel the pending action first.';
 
 const hash = (value: string) => crypto.createHash('sha256').update(value).digest('hex').slice(0, 16);
 
@@ -72,11 +73,12 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
       summarize: (call) => summarizeConfirmation(ctx, call),
     });
 
+    const pending = (await graph.getState({ configurable: { thread_id: thread } })).tasks.flatMap((task) => task.interrupts ?? []);
+
     let input: Parameters<typeof graph.stream>[0];
     if (turn.resume) {
       // Only a confirmation that is actually pending on this customer's thread can be answered,
       // and only once: the first request to claim it wins (spec 002).
-      const pending = (await graph.getState({ configurable: { thread_id: thread } })).tasks.flatMap((task) => task.interrupts ?? []);
       const waiting = pending.find((i) => i.id === turn.resume?.interruptId);
       if (!waiting) {
         yield { event: 'error', data: { message: NOTHING_PENDING, retryable: false } };
@@ -93,6 +95,13 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
       const tool = (waiting.value as { tool?: string } | undefined)?.tool;
       if (turn.resume.approved && tool) yield toolStartEvent(tool);
     } else {
+      // A message while a confirmation waits would follow a tool call that has no result yet,
+      // which the API rejects; the customer answers the confirmation first (spec 009).
+      if (pending.length > 0) {
+        yield { event: 'error', data: { message: CONFIRM_FIRST, retryable: false } };
+        yield { event: 'done', data: { threadId } };
+        return;
+      }
       // A new message starts a new turn, so the step counter starts again.
       input = { messages: [new HumanMessage(turn.message ?? '')], toolCalls: 0 };
     }

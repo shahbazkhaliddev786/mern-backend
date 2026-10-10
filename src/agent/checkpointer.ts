@@ -22,3 +22,21 @@ export function createCheckpointer(connection: Connection = mongoose.connection)
     ttl: CHECKPOINT_TTL_SECONDS,
   });
 }
+
+/**
+ * Claims a pending confirmation so only one request can resume it (spec 002: without this,
+ * two concurrent confirms ran the tool twice). The interrupt id is the unique _id; returns
+ * false when it was already claimed. Expires with the TTL index from `npm run agent:setup`.
+ */
+export async function claimConfirmation(interruptId: string, thread: string, connection: Connection = mongoose.connection): Promise<boolean> {
+  if (!connection.db) throw new Error('claimConfirmation needs an open MongoDB connection');
+  try {
+    await connection.db
+      .collection<{ _id: string; thread: string; createdAt: Date }>(CONFIRM_CLAIMS_COLLECTION)
+      .insertOne({ _id: interruptId, thread, createdAt: new Date() });
+    return true;
+  } catch (error) {
+    if ((error as { code?: number }).code === 11000) return false;
+    throw error;
+  }
+}

@@ -5,6 +5,9 @@ const services = vi.hoisted(() => ({
   getAllProductsService: vi.fn(),
   getProductByIdService: vi.fn(),
   getCart: vi.fn(),
+  addToCart: vi.fn(),
+  updateCartItem: vi.fn(),
+  clearCart: vi.fn(),
   getMyOrders: vi.fn(),
   getMyOrderById: vi.fn(),
   getUserById: vi.fn(),
@@ -16,7 +19,12 @@ vi.mock('../../services/product.service.js', () => ({
   getAllProductsService: services.getAllProductsService,
   getProductByIdService: services.getProductByIdService,
 }));
-vi.mock('../../services/cart.service.js', () => ({ getCart: services.getCart }));
+vi.mock('../../services/cart.service.js', () => ({
+  getCart: services.getCart,
+  addToCart: services.addToCart,
+  updateCartItem: services.updateCartItem,
+  clearCart: services.clearCart,
+}));
 vi.mock('../../services/order.service.js', () => ({ getMyOrders: services.getMyOrders, getMyOrderById: services.getMyOrderById }));
 vi.mock('../../services/auth.service.js', () => ({ getUserById: services.getUserById }));
 // Name lookups: find({ name: { $in: [regex] } }).select().lean() against an in-memory list.
@@ -32,7 +40,7 @@ vi.mock('../../models/index.js', () => ({
   Category: nameModel(() => services.categoryNames),
 }));
 
-import { buildToolsForRequest, READ_TOOL_NAMES } from './index';
+import { AGENT_TOOL_NAMES, buildToolsForRequest, summarizeConfirmation } from './index';
 import { untrusted } from './helpers';
 
 const A = { userId: '64b000000000000000000a01' };
@@ -60,8 +68,8 @@ beforeEach(() => {
 describe('tool definitions', () => {
   const schemaOf = (t: { schema: unknown }) => z.toJSONSchema(t.schema as z.ZodType);
 
-  it('exposes the six read tools', () => {
-    expect(buildToolsForRequest(A).map((t) => t.name)).toEqual([...READ_TOOL_NAMES]);
+  it('exposes the six read tools and three cart writes', () => {
+    expect(buildToolsForRequest(A).map((t) => t.name)).toEqual([...AGENT_TOOL_NAMES]);
   });
 
   it('never has a user identity argument at any depth', () => {
@@ -81,8 +89,14 @@ describe('tool definitions', () => {
     expect(describeAll(A)).toEqual(describeAll(B));
   });
 
-  it('marks every tool as a read that needs no confirmation', () => {
-    for (const t of buildToolsForRequest(A)) expect(t.metadata).toEqual({ kind: 'read', confirmRequired: false });
+  it('marks reads, writes, and only clear_cart as needing confirmation', () => {
+    const metadata = Object.fromEntries(buildToolsForRequest(A).map((t) => [t.name, t.metadata]));
+    for (const name of ['search_products', 'get_product_details', 'view_cart', 'view_orders', 'get_order_status', 'view_profile']) {
+      expect(metadata[name]).toEqual({ kind: 'read', confirmRequired: false });
+    }
+    expect(metadata.add_to_cart).toEqual({ kind: 'write', confirmRequired: false });
+    expect(metadata.update_cart_item).toEqual({ kind: 'write', confirmRequired: false });
+    expect(metadata.clear_cart).toEqual({ kind: 'write', confirmRequired: true });
   });
 });
 
@@ -280,5 +294,57 @@ describe('errors never reach the model as exceptions', () => {
   it('turns an unexpected failure into a generic message', async () => {
     services.getCart.mockRejectedValue(new Error('connection reset'));
     expect(await call(A, 'view_cart')).toEqual({ error: 'Something went wrong looking that up. Please try again in a moment.' });
+  });
+});
+
+describe('cart writes', () => {
+  const cartWith = (quantity: number) => ({
+    items: [{ product: { _id: PRODUCT_ID, name: 'Trail Runner', price: 45, stock: 5 }, quantity }],
+    itemsCount: quantity,
+    subtotal: 45 * quantity,
+  });
+
+  it('add_to_cart adds for the closure\'s user (default quantity 1) and returns the cart', async () => {
+    services.addToCart.mockResolvedValue(cartWith(1));
+    const out = await call(A, 'add_to_cart', { product_id: PRODUCT_ID });
+    expect(services.addToCart).toHaveBeenCalledWith(A.userId, PRODUCT_ID, 1);
+    expect(out).toMatchObject({ itemsCount: 1, total: 45, items: [{ productId: PRODUCT_ID, quantity: 1, lineTotal: 45 }] });
+  });
+
+  it('update_cart_item passes 0 through to remove an item', async () => {
+    services.updateCartItem.mockResolvedValue({ items: [], itemsCount: 0, subtotal: 0 });
+    await call(B, 'update_cart_item', { product_id: PRODUCT_ID, quantity: 0 });
+    expect(services.updateCartItem).toHaveBeenCalledWith(B.userId, PRODUCT_ID, 0);
+  });
+
+  it('enforces quantity bounds and product id format', async () => {
+    const add = toolNamed(A, 'add_to_cart');
+    const update = toolNamed(A, 'update_cart_item');
+    await expect(add.invoke({ product_id: PRODUCT_ID, quantity: 0 })).rejects.toThrow();
+    await expect(add.invoke({ product_id: PRODUCT_ID, quantity: 100 })).rejects.toThrow();
+    await expect(update.invoke({ product_id: PRODUCT_ID, quantity: -1 })).rejects.toThrow();
+    await expect(update.invoke({ product_id: 'nope', quantity: 1 })).rejects.toThrow();
+    expect(services.addToCart).not.toHaveBeenCalled();
+  });
+
+  it('turns the cart service\'s known errors into plain sentences', async () => {
+    services.addToCart.mockRejectedValue(new Error('Not enough stock'));
+    expect(await call(A, 'add_to_cart', { product_id: PRODUCT_ID, quantity: 9 })).toEqual({ error: "There isn't enough stock for that quantity." });
+    services.updateCartItem.mockRejectedValue(new Error('Item not in cart'));
+    expect(await call(A, 'update_cart_item', { product_id: PRODUCT_ID, quantity: 2 })).toEqual({ error: "That product isn't in the cart." });
+  });
+
+  it('clear_cart clears the closure\'s cart', async () => {
+    services.clearCart.mockResolvedValue({ items: [], itemsCount: 0, subtotal: 0 });
+    expect(await call(A, 'clear_cart')).toMatchObject({ items: [], itemsCount: 0, total: 0 });
+    expect(services.clearCart).toHaveBeenCalledWith(A.userId);
+  });
+
+  it('summarizes clear_cart from the current cart without changing it', async () => {
+    services.getCart.mockResolvedValue({ items: [], itemsCount: 3, subtotal: 142.5 });
+    expect(await summarizeConfirmation(A, { name: 'clear_cart', args: {} })).toBe('Remove all 3 items ($142.50) from your cart?');
+    services.getCart.mockResolvedValue({ items: [], itemsCount: 0, subtotal: 0 });
+    expect(await summarizeConfirmation(A, { name: 'clear_cart', args: {} })).toBe('Your cart is already empty. Clear it anyway?');
+    expect(services.clearCart).not.toHaveBeenCalled();
   });
 });

@@ -1,5 +1,6 @@
 // Shared plumbing for the agent's tools (spec 005).
 
+import { computeOrderPricing } from '../../services/pricing.service.js';
 import logger from '../../utils/logger.js';
 
 /** Tool results are compact JSON strings. */
@@ -42,3 +43,24 @@ export const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
 
 export const refName = (ref: unknown): string | null =>
   ref && typeof ref === 'object' && 'name' in ref ? String((ref as { name: unknown }).name) : null;
+
+/** A cart from cart.service (getCart and the cart writes) in the shape every cart tool returns. */
+export function cartSummary(cart: { items: unknown[]; itemsCount: number; subtotal: number }) {
+  const items = (cart.items as { product?: Record<string, unknown> | null; quantity: number }[])
+    // A product deleted after it was added has nothing to show or price.
+    .filter((item) => item.product && typeof item.product === 'object')
+    .map((item) => {
+      const product = item.product as Record<string, unknown>;
+      const unitPrice = Number(product.price);
+      return {
+        productId: String(product._id),
+        name: product.name,
+        unitPrice,
+        quantity: item.quantity,
+        lineTotal: Number((unitPrice * item.quantity).toFixed(2)),
+        stock: product.stock,
+      };
+    });
+  const { subtotal, shipping, tax, total } = computeOrderPricing(cart.subtotal);
+  return { items, itemsCount: cart.itemsCount, subtotal, shipping, tax, total };
+}

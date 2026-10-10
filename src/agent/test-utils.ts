@@ -36,15 +36,15 @@ let callCounter = 0;
 export const toolCall = (name: string, args: Record<string, unknown> = {}) =>
   new AIMessage({ content: '', tool_calls: [{ id: `call_${(callCounter += 1)}`, name, args, type: 'tool_call' }] });
 
-/** A stand-in tool that records its calls. */
-export function recordingTool(name: string, result: unknown = { ok: true }) {
+/** A stand-in tool that records its calls. Pass metadata to make it a (confirm-required) write. */
+export function recordingTool(name: string, result: unknown = { ok: true }, metadata?: { kind: 'read' | 'write'; confirmRequired: boolean }) {
   const runs: unknown[] = [];
   const fake = tool(
     async (args: Record<string, unknown>) => {
       runs.push(args);
       return JSON.stringify(result);
     },
-    { name, description: `Test tool ${name}`, schema: z.object({}).passthrough() },
+    { name, description: `Test tool ${name}`, schema: z.object({}).passthrough(), ...(metadata ? { metadata } : {}) },
   );
   return { tool: fake, runs };
 }

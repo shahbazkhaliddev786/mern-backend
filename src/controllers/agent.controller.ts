@@ -6,10 +6,17 @@ import { formatSse } from '../agent/stream.js';
 import { apiResponse } from '../utils/api.response.js';
 import logger from '../utils/logger.js';
 
-export const chatRequestSchema = z.object({
-  message: z.string().trim().min(1).max(2000),
-  threadId: z.uuid().optional(),
-});
+// A new message, or the answer to a pending confirmation (spec 008).
+export const chatRequestSchema = z.union([
+  z.object({
+    message: z.string().trim().min(1).max(2000),
+    threadId: z.uuid().optional(),
+  }),
+  z.object({
+    threadId: z.uuid(),
+    resume: z.object({ interruptId: z.string().min(1).max(200), approved: z.boolean() }),
+  }),
+]);
 
 const UNAVAILABLE = 'The shopping assistant is not available right now.';
 
@@ -32,7 +39,7 @@ export const agentAvailable: RequestHandler = (_req, res, next) => {
 export const createChatHandler =
   (deps?: ChatDeps) =>
   async (req: Request, res: Response): Promise<void> => {
-    const { message, threadId } = req.body as z.infer<typeof chatRequestSchema>;
+    const body = req.body as z.infer<typeof chatRequestSchema>;
     const userId = String((req as Request & { user: { _id: unknown } }).user._id);
 
     res.writeHead(200, {
@@ -49,7 +56,13 @@ export const createChatHandler =
       if (!res.writableEnded) abort.abort();
     });
 
-    const turn = { config: res.locals.agentConfig as AgentConfig, userId, message, threadId, signal: abort.signal };
+    const turn = {
+      config: res.locals.agentConfig as AgentConfig,
+      userId,
+      threadId: body.threadId,
+      ...('resume' in body ? { resume: body.resume } : { message: body.message }),
+      signal: abort.signal,
+    };
     for await (const event of runChatTurn(turn, deps)) {
       if (abort.signal.aborted) break;
       res.write(formatSse(event));

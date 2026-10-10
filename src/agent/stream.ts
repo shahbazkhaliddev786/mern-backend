@@ -18,6 +18,9 @@ export const TOOL_LABELS: Record<string, string> = {
   view_orders: 'Looking up your orders…',
   get_order_status: 'Checking that order…',
   view_profile: 'Looking at your profile…',
+  add_to_cart: 'Adding to your cart…',
+  update_cart_item: 'Updating your cart…',
+  clear_cart: 'Clearing your cart…',
 };
 
 // Nodes whose messages are the assistant speaking to the customer.
@@ -33,7 +36,7 @@ export function visibleText(content: BaseMessage['content']): string {
     .join('');
 }
 
-const isToolError = (content: BaseMessage['content']) => {
+export const isToolError = (content: BaseMessage['content']) => {
   try {
     const parsed = JSON.parse(visibleText(content)) as unknown;
     return Boolean(parsed && typeof parsed === 'object' && 'error' in parsed);
@@ -42,7 +45,14 @@ const isToolError = (content: BaseMessage['content']) => {
   }
 };
 
-export function* toAgentEvents([mode, payload]: StreamChunk): Generator<AgentEvent> {
+export interface StreamOptions {
+  /** Confirm-required tools get no tool_start until the customer confirms (spec 008). */
+  confirmRequired?: ReadonlySet<string>;
+}
+
+export const toolStartEvent = (tool: string): AgentEvent => ({ event: 'tool_start', data: { tool, label: TOOL_LABELS[tool] ?? 'Working on it…' } });
+
+export function* toAgentEvents([mode, payload]: StreamChunk, options: StreamOptions = {}): Generator<AgentEvent> {
   if (mode === 'messages') {
     const [message, metadata] = payload as [BaseMessage, { langgraph_node?: string }];
     if (!SPEAKING_NODES.has(metadata?.langgraph_node ?? '')) return;
@@ -65,7 +75,7 @@ export function* toAgentEvents([mode, payload]: StreamChunk): Generator<AgentEve
   const agentUpdate = update.agent as { messages?: BaseMessage[] } | undefined;
   for (const message of agentUpdate?.messages ?? []) {
     for (const call of (message as { tool_calls?: { name: string }[] }).tool_calls ?? []) {
-      yield { event: 'tool_start', data: { tool: call.name, label: TOOL_LABELS[call.name] ?? 'Working on it…' } };
+      if (!options.confirmRequired?.has(call.name)) yield toolStartEvent(call.name);
     }
   }
 

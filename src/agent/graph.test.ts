@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
-import { MemorySaver } from '@langchain/langgraph';
+import { Command, MemorySaver } from '@langchain/langgraph';
 import { STEP_BUDGET } from './config';
 import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from './graph';
 import { REFUSAL_REPLY, STEP_BUDGET_REPLY, SYSTEM_PROMPT } from './prompt';
@@ -142,5 +142,80 @@ describe('stream mapping', () => {
     expect(events(['updates', { __interrupt__: [interrupt] }])).toEqual([
       { event: 'confirm_required', data: { interruptId: 'int-1', tool: 'clear_cart', summary: 'Remove 2 items?' } },
     ]);
+  });
+});
+
+describe('confirmation gate', () => {
+  const write = { kind: 'write', confirmRequired: false } as const;
+  const confirmed = { kind: 'write', confirmRequired: true } as const;
+
+  const setup = (script: AIMessage[]) => {
+    const add = recordingTool('add_to_cart', { itemsCount: 1 }, write);
+    const clear = recordingTool('clear_cart', { itemsCount: 0 }, confirmed);
+    const model = new ScriptedChatModel(script);
+    const graph = buildAgentGraph({
+      model,
+      tools: [add.tool, clear.tool],
+      checkpointer: new MemorySaver(),
+      userId: 'u1',
+      summarize: async (call) => `Confirm ${call.name}: remove all 2 items ($90.00)?`,
+    });
+    const config = { configurable: { thread_id: 'gate' }, recursionLimit: RECURSION_LIMIT };
+    const start = (text: string) => graph.invoke({ messages: [new HumanMessage(text)], toolCalls: 0 }, config);
+    const resume = (approved: boolean) => graph.invoke(new Command({ resume: { approved } }), config);
+    return { add, clear, model, start, resume };
+  };
+
+  const toolResultsIn = (messages: BaseMessage[]) => messages.filter((m) => m instanceof ToolMessage) as ToolMessage[];
+
+  it('runs single-item cart writes straight away', async () => {
+    const { add, start } = setup([toolCall('add_to_cart', { product_id: 'p1' }), new AIMessage('Added.')]);
+    const state = await start('add it');
+    expect(add.runs).toEqual([{ product_id: 'p1' }]);
+    expect((state as { __interrupt__?: unknown }).__interrupt__).toBeUndefined();
+    expect(lastText(state.messages)).toBe('Added.');
+  });
+
+  it('pauses clear_cart with the server summary and changes nothing until confirmed', async () => {
+    const { clear, start } = setup([toolCall('clear_cart')]);
+    const state = (await start('empty my cart')) as { __interrupt__?: { id: string; value: unknown }[] };
+    expect(state.__interrupt__?.[0]?.value).toEqual({ tool: 'clear_cart', args: {}, summary: 'Confirm clear_cart: remove all 2 items ($90.00)?' });
+    expect(state.__interrupt__?.[0]?.id).toBeTruthy();
+    expect(clear.runs).toHaveLength(0);
+  });
+
+  it('runs clear_cart exactly once when the customer confirms', async () => {
+    const { clear, start, resume } = setup([toolCall('clear_cart'), new AIMessage('Your cart is empty now.')]);
+    await start('empty my cart');
+    const state = await resume(true);
+    expect(clear.runs).toHaveLength(1);
+    expect(lastText(state.messages)).toBe('Your cart is empty now.');
+  });
+
+  it('never runs clear_cart when the customer declines, and answers the pending call', async () => {
+    const { clear, model, start, resume } = setup([toolCall('clear_cart'), new AIMessage('Okay, I left your cart as it is.')]);
+    await start('empty my cart');
+    const state = await resume(false);
+    expect(clear.runs).toHaveLength(0);
+    expect(toolResultsIn(state.messages).map((m) => m.content)).toEqual(['{"error":"Not run: the customer declined."}']);
+    expect(model.calls[1]!.some((m) => m instanceof ToolMessage)).toBe(true);
+    expect(lastText(state.messages)).toBe('Okay, I left your cart as it is.');
+  });
+
+  it('runs nothing when one message asks for two confirm-required actions', async () => {
+    const twoClears = new AIMessage({
+      content: '',
+      tool_calls: [
+        { id: 'c1', name: 'clear_cart', args: {}, type: 'tool_call' },
+        { id: 'c2', name: 'clear_cart', args: {}, type: 'tool_call' },
+        { id: 'c3', name: 'add_to_cart', args: { product_id: 'p1' }, type: 'tool_call' },
+      ],
+    });
+    const { add, clear, start } = setup([twoClears, new AIMessage('One at a time, please.')]);
+    const state = await start('clear it twice');
+    expect(clear.runs).toHaveLength(0);
+    expect(add.runs).toHaveLength(0);
+    expect(toolResultsIn(state.messages).map((m) => m.tool_call_id).sort()).toEqual(['c1', 'c2', 'c3']);
+    expect((state as { __interrupt__?: unknown }).__interrupt__).toBeUndefined();
   });
 });

@@ -34,3 +34,4 @@ Add a row when a spec is created; update its status as it moves.
 | 005 | [Read tools](./005-m2-read-tools.md) | M2 | Done | `2f97266` |
 | 006 | [Agent graph and chat endpoint](./006-m2-agent-graph-and-chat-endpoint.md) | M2 | In progress — code complete; real-model check pending | — |
 | 007 | [Chat panel](./007-m3-chat-panel.md) | M3 | Done | `mern-frontend` `d08968f` |
+| 008 | [Confirmation gate and cart writes](./008-m4-confirmation-gate-and-cart-writes.md) | M4 | Done | this commit |

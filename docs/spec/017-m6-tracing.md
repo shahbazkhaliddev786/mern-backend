@@ -6,7 +6,7 @@
 | **Milestone** | M6 — Hardening ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | `d4ffd11` |
 | **Repo** | `mern-backend` only |
 
 ## Goal

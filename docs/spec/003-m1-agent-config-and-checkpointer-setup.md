@@ -6,7 +6,7 @@
 | **Milestone** | M1 — Spikes & foundations ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | `f336c69` |
 
 ## Goal
 

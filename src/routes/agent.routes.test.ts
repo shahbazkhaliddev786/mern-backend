@@ -39,7 +39,8 @@ vi.mock('../services/upload.service.js', () => ({
 }));
 
 import config from '../config/config';
-import { ScriptedChatModel, toolCall } from '../agent/test-utils';
+import { memoryLimiters, ScriptedChatModel, toolCall } from '../agent/test-utils';
+import { setAgentLimiters } from '../agent/limits';
 import { createAgentRouter } from './agent.routes';
 
 // Stand-in for a verified session: x-test-user carries the user id.
@@ -89,6 +90,7 @@ beforeEach(() => {
   config.AGENT_ENABLED = 'true';
   config.ANTHROPIC_API_KEY = 'test-key';
   config.VOYAGE_API_KEY = 'test-voyage-key';
+  setAgentLimiters(memoryLimiters());
   config.LANGSMITH_TRACING = 'false';
   checkpointer = new MemorySaver();
   claimed = new Set();
@@ -366,6 +368,89 @@ describe.skipIf(!process.env.MONGO_URL)('POST /agent/chat — memory in MongoDB'
 });
 
 // TEMPORARY (spec 004): the streaming probe.
+describe('per-user limits (spec 014)', () => {
+  const answer = () => (model = new ScriptedChatModel([new AIMessage('Hello!')]));
+  const uploadUrl = (chatUrl: string) => chatUrl.replace(/\/chat$/, '/uploads/avatar');
+
+  it('refuses the 21st message in 5 minutes with 429 and Retry-After, before any stream', async () => {
+    for (let i = 0; i < 20; i++) {
+      answer();
+      expect((await post(withTestAuth, { message: 'hi' }, 'u1')).status).toBe(200);
+    }
+    answer();
+    const refused = await post(withTestAuth, { message: 'hi' }, 'u1');
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get('content-type')).toContain('application/json');
+    expect(Number(refused.headers.get('retry-after'))).toBeGreaterThan(0);
+    expect(await refused.json()).toEqual({
+      status: 'error',
+      message: expect.stringMatching(/^You've sent a lot of messages in a short time\. Please wait about [1-5] minutes? and try again\.$/),
+    });
+  });
+
+  it('keeps budgets per user', async () => {
+    setAgentLimiters(memoryLimiters({ turnsBurst: 1 }));
+    answer();
+    await post(withTestAuth, { message: 'hi' }, 'u1');
+    answer();
+    expect((await post(withTestAuth, { message: 'hi' }, 'u1')).status).toBe(429);
+    answer();
+    expect((await post(withTestAuth, { message: 'hi' }, 'u2')).status).toBe(200);
+  });
+
+  it('counts confirmation answers as turns', async () => {
+    setAgentLimiters(memoryLimiters({ turnsBurst: 1 }));
+    model = new ScriptedChatModel([toolCall('clear_cart'), new AIMessage('Done.')]);
+    const events = await readEvents(await post(withTestAuth, { message: 'empty my cart' }, 'u1'));
+    const interruptId = events.find((e) => e.event === 'confirm_required')!.data.interruptId as string;
+    const threadId = events.at(-1)!.data.threadId as string;
+    const refused = await post(withTestAuth, { threadId, resume: { interruptId, approved: true } }, 'u1');
+    expect(refused.status).toBe(429);
+    expect(fakeTools.clearRuns).toHaveLength(0);
+  });
+
+  it('applies the daily cap even when the 5-minute window is clear, and says hours', async () => {
+    setAgentLimiters(memoryLimiters({ turnsDaily: 2 }));
+    for (let i = 0; i < 2; i++) {
+      answer();
+      await post(withTestAuth, { message: 'hi' }, 'u1');
+    }
+    answer();
+    const refused = await post(withTestAuth, { message: 'hi' }, 'u1');
+    expect(refused.status).toBe(429);
+    expect(((await refused.json()) as { message: string }).message).toMatch(/Please wait about 24 hours and try again\.$/);
+  });
+
+  it("doesn't count a malformed request", async () => {
+    setAgentLimiters(memoryLimiters({ turnsBurst: 1 }));
+    expect((await post(withTestAuth, { message: '' }, 'u1')).status).toBe(400);
+    answer();
+    expect((await post(withTestAuth, { message: 'hi' }, 'u1')).status).toBe(200);
+  });
+
+  it('answers 503 when the limit store fails, and runs nothing', async () => {
+    setAgentLimiters({ ...memoryLimiters(), turnsDaily: { consume: async () => Promise.reject(new Error('mongo down')) } });
+    model = new ScriptedChatModel([toolCall('search_products'), new AIMessage('x')]);
+    const response = await post(withTestAuth, { message: 'hi' }, 'u1');
+    expect(response.status).toBe(503);
+    expect(fakeTools.runs).toHaveLength(0);
+  });
+
+  it('refuses an upload over the write limit before the file is read', async () => {
+    setAgentLimiters(memoryLimiters({ writes: 1 }));
+    const send = (type: string) => {
+      const form = new FormData();
+      form.append('profile', new Blob([new Uint8Array(100)], { type }), 'me.png');
+      return fetch(uploadUrl(withTestAuth), { method: 'POST', body: form, headers: { 'x-test-user': 'u1' } });
+    };
+    expect((await send('image/png')).status).toBe(201);
+    // A wrong type would be a 400 from multer; the limit answers first.
+    const refused = await send('application/pdf');
+    expect(refused.status).toBe(429);
+    expect(((await refused.json()) as { message: string }).message).toMatch(/^You've made a lot of changes in a short time\./);
+  });
+});
+
 describe('POST /agent/_stream-probe', () => {
   const probeUrl = (base: string, seconds: string) => base.replace(/\/chat$/, `/_stream-probe?seconds=${seconds}`);
 

@@ -77,6 +77,8 @@ vi.mock('../../models/index.js', () => ({
 }));
 
 import { AGENT_TOOL_NAMES, buildToolsForRequest, summarizeConfirmation } from './index';
+import { setAgentLimiters } from '../limits';
+import { memoryLimiters } from '../test-utils';
 import { untrusted } from './helpers';
 
 const A = { userId: '64b000000000000000000a01' };
@@ -96,6 +98,7 @@ const emptyPage = { products: [], pagination: { currentPage: 1, totalPages: 0, t
 
 beforeEach(() => {
   vi.clearAllMocks();
+  setAgentLimiters(memoryLimiters());
   services.brandNames = [{ _id: 'brand-1', name: 'Aljo' }];
   services.categoryNames = [{ _id: 'cat-1', name: 'Shoes' }];
   services.getAllProductsService.mockResolvedValue(emptyPage);
@@ -157,6 +160,58 @@ describe('identity comes from the closure', () => {
       expect(services.getMyOrderById).toHaveBeenLastCalledWith(ctx.userId, ORDER_ID);
       expect(services.getUserById).toHaveBeenLastCalledWith(ctx.userId);
     }
+  });
+});
+
+describe('per-user write limits (spec 014)', () => {
+  const cart = { items: [], itemsCount: 0, subtotal: 0 };
+
+  it('refuses a write over the limit without calling the service', async () => {
+    setAgentLimiters(memoryLimiters({ writes: 1 }));
+    services.addToCart.mockResolvedValue(cart);
+    await call(A, 'add_to_cart', { product_id: PRODUCT_ID, quantity: 1 });
+    const refused = await call(A, 'add_to_cart', { product_id: PRODUCT_ID, quantity: 1 });
+    expect(refused.error).toMatch(/^You've made a lot of changes in a short time\. Please wait about 1 hour and try again\.$/);
+    expect(services.addToCart).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps budgets per user', async () => {
+    setAgentLimiters(memoryLimiters({ writes: 1 }));
+    services.addToCart.mockResolvedValue(cart);
+    await call(A, 'add_to_cart', { product_id: PRODUCT_ID });
+    expect((await call(B, 'add_to_cart', { product_id: PRODUCT_ID })).error).toBeUndefined();
+  });
+
+  it('never counts reads', async () => {
+    setAgentLimiters(memoryLimiters({ writes: 1 }));
+    services.getCart.mockResolvedValue(cart);
+    services.addToCart.mockResolvedValue(cart);
+    for (let i = 0; i < 5; i++) await call(A, 'view_cart');
+    expect((await call(A, 'add_to_cart', { product_id: PRODUCT_ID })).error).toBeUndefined();
+  });
+
+  it('stops the 4th support message in an hour and points to the Contact page', async () => {
+    services.getUserById.mockResolvedValue({ name: 'Jane', email: 'jane@example.com' });
+    services.submitSupportRequest.mockResolvedValue(undefined);
+    const args = { subject: 'Late order', message: 'My order has not arrived yet.' };
+    for (let i = 0; i < 3; i++) expect((await call(A, 'submit_support_request', args)).error).toBeUndefined();
+    const refused = await call(A, 'submit_support_request', args);
+    expect(refused.error).toMatch(/^You've sent several messages to support recently\. Please wait about 1 hour, or use the Contact page \(\/contact\)\.$/);
+    expect(services.submitSupportRequest).toHaveBeenCalledTimes(3);
+  });
+
+  it('refuses, without running, when the limit store fails', async () => {
+    const broken = { consume: async () => Promise.reject(new Error('mongo down')) };
+    setAgentLimiters({ ...memoryLimiters(), writes: broken });
+    const result = await call(A, 'add_to_cart', { product_id: PRODUCT_ID });
+    expect(result.error).toBe("I can't make changes right now. Please try again in a moment.");
+    expect(services.addToCart).not.toHaveBeenCalled();
+  });
+
+  it('keeps each write tool\'s name, schema and metadata', () => {
+    const write = toolNamed(A, 'clear_cart');
+    expect(write.metadata).toEqual({ kind: 'write', confirmRequired: true });
+    expect(write.description).toContain('cart');
   });
 });
 

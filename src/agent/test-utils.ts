@@ -4,7 +4,9 @@ import { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { AIMessage, type BaseMessage } from '@langchain/core/messages';
 import type { ChatResult } from '@langchain/core/outputs';
 import { tool } from '@langchain/core/tools';
+import { RateLimiterMemory } from 'rate-limiter-flexible';
 import { z } from 'zod';
+import { AGENT_LIMITS, type AgentBudget, type AgentLimiters } from './limits.js';
 
 /** Answers with queued messages in order and records what it was sent. */
 export class ScriptedChatModel extends BaseChatModel {
@@ -47,4 +49,10 @@ export function recordingTool(name: string, result: unknown = { ok: true }, meta
     { name, description: `Test tool ${name}`, schema: z.object({}).passthrough(), ...(metadata ? { metadata } : {}) },
   );
   return { tool: fake, runs };
+}
+
+/** In-memory stand-ins for the agent's per-user limiters (spec 014), with optional smaller limits. */
+export function memoryLimiters(points: Partial<Record<AgentBudget, number>> = {}): AgentLimiters {
+  const memory = (budget: AgentBudget) => new RateLimiterMemory({ ...AGENT_LIMITS[budget], points: points[budget] ?? AGENT_LIMITS[budget].points });
+  return { turnsBurst: memory('turnsBurst'), turnsDaily: memory('turnsDaily'), writes: memory('writes'), support: memory('support') };
 }

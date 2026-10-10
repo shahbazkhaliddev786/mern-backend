@@ -19,6 +19,7 @@ import type { ToolContext } from './types.js';
 import { viewCartTool } from './view-cart.js';
 import { viewOrdersTool } from './view-orders.js';
 import { viewProfileTool } from './view-profile.js';
+import { withWriteLimit } from './write-limit.js';
 
 export type { ToolContext } from './types.js';
 
@@ -43,13 +44,13 @@ export function buildToolsForRequest(ctx: ToolContext) {
     viewOrdersTool(ctx),
     getOrderStatusTool(ctx),
     viewProfileTool(ctx),
-    addToCartTool(ctx),
-    updateCartItemTool(ctx),
-    clearCartTool(ctx),
-    placeOrderTool(ctx),
-    updateProfileTool(ctx),
-    submitSupportRequestTool(ctx),
-    uploadAvatarTool(ctx),
+    withWriteLimit(addToCartTool(ctx), ctx),
+    withWriteLimit(updateCartItemTool(ctx), ctx),
+    withWriteLimit(clearCartTool(ctx), ctx),
+    withWriteLimit(placeOrderTool(ctx), ctx),
+    withWriteLimit(updateProfileTool(ctx), ctx),
+    withWriteLimit(submitSupportRequestTool(ctx), ctx),
+    withWriteLimit(uploadAvatarTool(ctx), ctx),
   ];
 }
 

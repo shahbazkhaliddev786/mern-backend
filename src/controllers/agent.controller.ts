@@ -2,6 +2,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import { runChatTurn, type ChatDeps } from '../agent/chat.service.js';
 import { AgentConfigError, getAgentConfig, type AgentConfig } from '../agent/config.js';
+import { consumeBudgets, LimitStoreError, waitPhrase, type AgentBudget } from '../agent/limits.js';
 import { formatSse } from '../agent/stream.js';
 import { createAvatarUpload, findOwnedUpload, formatSize } from '../services/upload.service.js';
 import { apiResponse } from '../utils/api.response.js';
@@ -37,6 +38,33 @@ export const agentAvailable: RequestHandler = (_req, res, next) => {
   res.locals.agentConfig = config;
   next();
 };
+
+// Per-user limits before anything costly runs (spec 014). Runs after auth: keyed on the user id.
+const limitRequests =
+  (budgets: AgentBudget[], tooMany: (wait: string) => string): RequestHandler =>
+  async (req, res, next) => {
+    const userId = String((req as Request & { user: { _id: unknown } }).user._id);
+    try {
+      const result = await consumeBudgets(userId, budgets);
+      if (result.ok) return next();
+      res.setHeader('Retry-After', String(Math.ceil(result.msBeforeNext / 1000)));
+      return apiResponse(res, 429, 'error', tooMany(waitPhrase(result.msBeforeNext)));
+    } catch (error) {
+      // Without the limit store the request isn't let through (the chat needs MongoDB anyway).
+      logger.error('AGENT_LIMIT_ERROR', { userId, error: error instanceof LimitStoreError ? error.message : String(error) });
+      return apiResponse(res, 503, 'error', UNAVAILABLE);
+    }
+  };
+
+export const agentTurnLimit = limitRequests(
+  ['turnsBurst', 'turnsDaily'],
+  (wait) => `You've sent a lot of messages in a short time. Please wait ${wait} and try again.`,
+);
+
+export const agentUploadLimit = limitRequests(
+  ['writes'],
+  (wait) => `You've made a lot of changes in a short time. Please wait ${wait} and try again.`,
+);
 
 // POST /api/v1/agent/chat — streams one turn as server-sent events (spec 006).
 export const createChatHandler =

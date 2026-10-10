@@ -5,7 +5,9 @@ import { STEP_BUDGET } from './config';
 import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from './graph';
 import { REFUSAL_REPLY, STEP_BUDGET_REPLY, SYSTEM_PROMPT } from './prompt';
 import { toAgentEvents, toolStartEvent, visibleText } from './stream';
-import { recordingTool, ScriptedChatModel, toolCall } from './test-utils';
+import { memoryLimiters, recordingTool, ScriptedChatModel, toolCall } from './test-utils';
+import { setAgentLimiters } from './limits';
+import { withWriteLimit } from './tools/write-limit';
 import { askStoreKnowledgeTool } from './tools/ask-store-knowledge';
 
 const knowledge = vi.hoisted(() => ({ askKnowledge: vi.fn() }));
@@ -193,6 +195,46 @@ describe('confirmation gate', () => {
   };
 
   const toolResultsIn = (messages: BaseMessage[]) => messages.filter((m) => m instanceof ToolMessage) as ToolMessage[];
+
+  describe('with per-user write limits (spec 014)', () => {
+    const limitedSetup = (script: AIMessage[]) => {
+      const clear = recordingTool('clear_cart', { itemsCount: 0 }, confirmed);
+      const graph = buildAgentGraph({
+        model: new ScriptedChatModel(script),
+        tools: [withWriteLimit(clear.tool as never, { userId: 'u1' })],
+        checkpointer: new MemorySaver(),
+        userId: 'u1',
+        summarize: async () => 'Remove all items?',
+      });
+      const config = { configurable: { thread_id: 'limited' }, recursionLimit: RECURSION_LIMIT };
+      return {
+        clear,
+        start: () => graph.invoke({ messages: [new HumanMessage('empty my cart')], toolCalls: 0 }, config),
+        resume: (approved: boolean) => graph.invoke(new Command({ resume: { approved } }), config),
+      };
+    };
+
+    it('a confirmed action over the limit does not run, and the model is told why', async () => {
+      const limiters = memoryLimiters({ writes: 1 });
+      await limiters.writes.consume('u1');
+      setAgentLimiters(limiters);
+      const { clear, start, resume } = limitedSetup([toolCall('clear_cart'), new AIMessage('Please wait a bit.')]);
+      await start();
+      const state = await resume(true);
+      expect(clear.runs).toHaveLength(0);
+      expect(toolResultsIn(state.messages).at(-1)?.content).toContain("You've made a lot of changes in a short time.");
+    });
+
+    it('a declined action uses none of the budget', async () => {
+      const limiters = memoryLimiters({ writes: 1 });
+      setAgentLimiters(limiters);
+      const { clear, start, resume } = limitedSetup([toolCall('clear_cart'), new AIMessage('Okay.')]);
+      await start();
+      await resume(false);
+      expect(clear.runs).toHaveLength(0);
+      await expect(limiters.writes.consume('u1')).resolves.toBeTruthy();
+    });
+  });
 
   it('runs single-item cart writes straight away', async () => {
     const { add, start } = setup([toolCall('add_to_cart', { product_id: 'p1' }), new AIMessage('Added.')]);

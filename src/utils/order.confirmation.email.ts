@@ -81,10 +81,10 @@ export const sendOrderConfirmationEmail = async (email: string, order: any) => {
         Total: <strong>$${order.total.toFixed(2)}</strong>
       </div>
 
-      <p>We will notify you when your order is dispatched.</p>
+      <p>You can check your order's status anytime under My Orders in your account.</p>
     </div>
     <div class="footer">
-      <p>© 2025 Aljo Store. All rights reserved.</p>
+      <p>© ${new Date().getFullYear()} Aljo Store. All rights reserved.</p>
       <p>Thank you for shopping with us!</p>
     </div>
   </div>

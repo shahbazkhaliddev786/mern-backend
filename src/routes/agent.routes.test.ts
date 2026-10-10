@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import crypto from 'node:crypto';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express, { type RequestHandler } from 'express';
@@ -39,6 +40,7 @@ vi.mock('../services/upload.service.js', () => ({
 }));
 
 import config from '../config/config';
+import logger from '../utils/logger';
 import { memoryLimiters, ScriptedChatModel, toolCall } from '../agent/test-utils';
 import { setAgentLimiters } from '../agent/limits';
 import { createAgentRouter } from './agent.routes';
@@ -489,6 +491,44 @@ describe('Opus escalation over HTTP (spec 015)', () => {
       expect(opusModel.calls).toHaveLength(0);
       expect(events.filter((e) => e.event === 'token').map((e) => e.data.text).join('')).toContain('our support team');
     }
+  });
+});
+
+describe('sensitive data (spec 016)', () => {
+  const CARD = '4242 4242 4242 4242';
+
+  it('refuses a message with a card number before the model, and stores nothing', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    warn.mockClear();
+    model = new ScriptedChatModel([new AIMessage('never')]);
+    const threadId = crypto.randomUUID();
+    const refused = await post(withTestAuth, { message: `pay with ${CARD}`, threadId }, 'u1');
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toEqual({
+      status: 'error',
+      message: "For your security, don't share card numbers or passwords here. Payment happens only on Stripe's checkout page.",
+    });
+    expect(model.calls).toHaveLength(0);
+    expect(warn).toHaveBeenCalledWith('AGENT_SENSITIVE_INPUT', { userId: 'u1', kinds: ['card'] });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('4242');
+
+    // The same conversation continues with no trace of it.
+    model = new ScriptedChatModel([new AIMessage('Hello!')]);
+    await readEvents(await post(withTestAuth, { message: 'hi', threadId }, 'u1'));
+    expect(JSON.stringify(model.calls[0])).not.toContain('4242');
+  });
+
+  it('a password given as a value is refused too', async () => {
+    const refused = await post(withTestAuth, { message: 'my password is Summer2024!' }, 'u1');
+    expect(refused.status).toBe(400);
+  });
+
+  it("never streams a card number from the model's reply", async () => {
+    model = new ScriptedChatModel([new AIMessage(`Your card ${CARD} is on file.`)]);
+    const events = await readEvents(await post(withTestAuth, { message: 'what card do I use?' }, 'u1'));
+    const text = events.filter((e) => e.event === 'token').map((e) => e.data.text).join('');
+    // Redacted as it streams; the fixed reply replaces it in the history only.
+    expect(text).toBe('Your card [card number removed] is on file.');
   });
 });
 

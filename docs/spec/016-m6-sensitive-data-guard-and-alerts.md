@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M6 — Hardening ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -70,46 +70,46 @@ Card numbers and credentials never reach the model, its tools, or the customer's
 
 ## Tasks
 
-- [ ] `guard.ts`: detection, Luhn, `redact`, the streaming redactor
-- [ ] `alerts.ts` + `ALERT_WEBHOOK_URL`
-- [ ] Server check on the customer's message
-- [ ] Tools node: argument check, result redaction, `confirmedCalls` check
-- [ ] Model text: streaming redaction in the chat service; replace a matching final message
-- [ ] Frontend: Composer check
-- [ ] Tests (below)
-- [ ] Update `observability.md` (the guard and alerts as built), `phases.md` §0 and the spec index
+- [x] `guard.ts`: detection, Luhn, `redact`, the streaming redactor
+- [x] `alerts.ts` + `ALERT_WEBHOOK_URL`
+- [x] Server check on the customer's message
+- [x] Tools node: argument check, result redaction, `confirmedCalls` check
+- [x] Model text: streaming redaction in the chat service; replace a matching final message
+- [x] Frontend: Composer check
+- [x] Tests (below)
+- [x] Update `observability.md` (the guard and alerts as built), `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] **Detection:**
-  - [ ] Luhn-valid cards match in every format, including Stripe's test card 4242 4242 4242 4242.
-  - [ ] Order numbers, prices, phone numbers and SKUs don't match.
-  - [ ] Every live knowledge chunk and the tool tests' product fixtures produce no matches.
-  - [ ] Credential phrases match; questions about passwords don't.
-  - [ ] Covered by unit tests.
-- [ ] **Streaming redactor:** catches a card number split across chunks, and passes ordinary text through unchanged and in order — unit test
-- [ ] **Customer message on the server:**
-  - [ ] A card number gets a 400, no model call, and nothing stored in the conversation.
-  - [ ] The log line has kinds only, no digits.
-  - [ ] Covered by an HTTP test.
-- [ ] **Tool arguments:** sensitive arguments aren't run, and an alert fires — graph test
-- [ ] **Tool results:** a sensitive result is redacted before the model sees it, and an alert fires — graph test
-- [ ] **Model text:**
-  - [ ] Streamed tokens are redacted.
-  - [ ] A matching final message is replaced in the stored history.
-  - [ ] An alert fires.
-  - [ ] Covered by graph and HTTP tests.
-- [ ] **Unconfirmed write:**
-  - [ ] A confirm-required call that reaches the tools node without a recorded approval doesn't run, and an alert fires. The bypass is simulated by injecting state with `updateState`.
-  - [ ] Normal confirm and decline flows are unaffected.
-  - [ ] Covered by graph tests.
-- [ ] **Alerts:**
-  - [ ] The webhook gets a POST with ids only.
-  - [ ] A webhook failure or timeout doesn't break the turn.
-  - [ ] Nothing is posted when the URL isn't set.
-  - [ ] This is the "staged test" in M6's exit criteria.
-- [ ] **Frontend:** the Composer refuses a card number in the browser and keeps the text; ordinary messages with numbers ("2 of the blue ones under $50", order #1A2B3C4D) still send — tests
-- [ ] **Checks:** backend lint 0 errors, build, `npm test` with and without `MONGO_URL` / `ATLAS_URL`; frontend tests, ESLint, Prettier, build
+- [x] **Detection:**
+  - [x] Luhn-valid cards match in every format, including Stripe's test card 4242 4242 4242 4242.
+  - [x] Order numbers, prices, phone numbers and SKUs don't match.
+  - [x] Every live knowledge chunk and the tool tests' product fixtures produce no matches.
+  - [x] Credential phrases match; questions about passwords don't.
+  - [x] Covered by unit tests.
+- [x] **Streaming redactor:** catches a card number split across chunks, and passes ordinary text through unchanged and in order — unit test
+- [x] **Customer message on the server:**
+  - [x] A card number gets a 400, no model call, and nothing stored in the conversation.
+  - [x] The log line has kinds only, no digits.
+  - [x] Covered by an HTTP test.
+- [x] **Tool arguments:** sensitive arguments aren't run, and an alert fires — graph test
+- [x] **Tool results:** a sensitive result is redacted before the model sees it, and an alert fires — graph test
+- [x] **Model text:**
+  - [x] Streamed tokens are redacted.
+  - [x] A matching final message is replaced in the stored history.
+  - [x] An alert fires.
+  - [x] Covered by graph and HTTP tests.
+- [x] **Unconfirmed write:**
+  - [x] A confirm-required call that reaches the tools node without a recorded approval doesn't run, and an alert fires. The bypass is simulated by starting a run with a `Command` that jumps straight to the tools node.
+  - [x] Normal confirm and decline flows are unaffected.
+  - [x] Covered by graph tests.
+- [x] **Alerts:**
+  - [x] The webhook gets a POST with ids only.
+  - [x] A webhook failure or timeout doesn't break the turn.
+  - [x] Nothing is posted when the URL isn't set.
+  - [x] This is the "staged test" in M6's exit criteria.
+- [x] **Frontend:** the Composer refuses a card number in the browser and keeps the text; ordinary messages with numbers ("2 of the blue ones under $50", order #1A2B3C4D) still send — tests
+- [x] **Checks:** backend lint 0 errors, build, `npm test` 211 + 30 skipped / 241 with `MONGO_URL` and `ATLAS_URL`; frontend 69 tests, ESLint 0 errors, Prettier, build
 
 ## Test plan
 
@@ -120,15 +120,31 @@ Card numbers and credentials never reach the model, its tools, or the customer's
 
 ## Open questions
 
-1. **Where alerts go.**
-   - **Recommended:** the `AGENT_ALERT` log line plus an optional `ALERT_WEBHOOK_URL`. Point it at a Slack channel, or at a Make.com scenario that emails you.
-   - **Alternative:** email through the store's existing mailer.
-2. **Which credentials to detect.**
-   - **Recommended:** JWTs, Stripe secret keys, and "password is / password:" phrases. Broader secret scanning gives many false positives in a shopping chat.
-3. **Check in the browser too?**
-   - **Recommended:** yes, so a card number never leaves the customer's browser. The server check stays as the backstop.
+_None — resolved 2026-10-10, see the decision log._
+
+## Results
+
+**2026-10-10** — backend in this repo; frontend `mern-frontend` `65aa829`.
+- **Files:**
+  - backend: `src/agent/guard.ts` (detection, Luhn, `redact`, `StreamRedactor`) and `src/agent/alerts.ts`
+  - the checks in `graph.ts` (tools node, agent node, `confirmedCalls` from the gate), `chat.service.ts` (streamed text) and `agent.controller.ts` (the customer's message)
+  - `ALERT_WEBHOOK_URL` in `config.ts` and `.env.example`
+  - frontend: `services/sensitive.ts` and the Composer check
+- **New tests:**
+  - backend: `guard.test.ts` (10), `alerts.test.ts` (4: the staged webhook test, including failure and a 3-second timeout), 5 graph tests, 3 HTTP tests
+  - frontend: 2 (67 → 69)
+- **No false positives** on any live knowledge chunk, product ids, order numbers, prices or phone numbers.
+- **What the customer sees** when the model's reply holds a card number: *"Your card [card number removed] is on file."* The history stores *"Sorry, I can't share that here."* instead.
+- **Not yet set:** `ALERT_WEBHOOK_URL` in production. Until it is, alerts are the `AGENT_ALERT` log line only.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved with the defaults: alerts go to the `AGENT_ALERT` log line plus an optional `ALERT_WEBHOOK_URL`; credentials are JWTs, Stripe secret keys and password-as-value phrases; the customer's message is checked in the browser too | Owner's choice |
+| 2026-10-10 | Card numbers must start with 2–6, besides passing the Luhn check | Real card numbers do. It also rules out runs of zeros inside product ids (e.g. `64b0000000000000000000c1`), which pass Luhn |
+| 2026-10-10 | A password-as-value match needs a digit in the value | The store's password rules require one; without it "the password is required" would match |
+| 2026-10-10 | When the model's reply holds a card number, the customer sees it redacted as it streamed; the fixed reply goes into the history only (an id prefix keeps it out of the stream) | The reply has already streamed by the time it's checked; streaming the fixed reply too showed both, glued together |
+| 2026-10-10 | Refused calls (sensitive arguments, no approval) don't count as tool failures for escalation | Neither is fixed by retrying or by Opus (the same rule as spec 015's limit refusals) |
+| 2026-10-10 | The streamed text is held back by up to 40 characters | Long enough for a grouped 19-digit card number split across chunks; released before any other event, so text and status chips stay in order |
+| 2026-10-10 | The gate bypass in the test is simulated with a `Command` that jumps to the tools node, not with `updateState` | `updateState` can't place the graph after the gate, which has no static edges |

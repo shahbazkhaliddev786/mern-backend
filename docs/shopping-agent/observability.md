@@ -92,7 +92,7 @@ The agent *acts on the user's behalf*. This is where silent, costly failures hid
   - [ ] `cancel_order` rate, rejected cancels (wrong state), refunds issued, and `REFUND_FAILED` errors waiting for an admin retry
 - [ ] **Tool error taxonomy** — out-of-stock, invalid SKU, invalid shipping address (Zod rejection), payment handoff failure, webhook failure, cancel-not-allowed, refund failure, upload rejected, DB error
 - [ ] **Action success ≠ tool success** — did `place_order` return a checkout link for the right cart and address, *and* did the webhook later create exactly one matching paid order?
-- [ ] **Payment boundary guard** — assert/alert if **card-like or credential data ever appears** in a prompt or tool arg (it must never reach the agent)
+- [x] **Payment boundary guard** — assert/alert if **card-like or credential data ever appears** in a prompt or tool arg (it must never reach the agent). *Built in spec 016:* the customer's message is checked in the browser and on the server (refused, never sent to the model); tool arguments with card numbers or credentials aren't run; tool results and the model's text are redacted. Each of the last three raises an `AGENT_ALERT`, as does a confirm-required call reaching the tools without a recorded approval. Alerts are a log line plus an optional POST to `ALERT_WEBHOOK_URL`, with ids only
 
 > 🚩 Alert immediately on: any confirm-required write (`place_order`, `cancel_order`, `clear_cart`, `update_profile`, `upload_avatar`, `submit_support_request`) without a preceding confirmation event, authz-denial spikes, card/credential pattern detected in LLM I/O, more than one order for one Stripe session, an order created other than by a verified webhook.
 

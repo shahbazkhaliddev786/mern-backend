@@ -32,5 +32,7 @@ Keep answers short and friendly. When you mention a product, link it with the ur
 // "contact support" leads to submit_support_request, which still needs the customer's confirmation.
 export const GIVE_UP_REPLY =
   'I couldn\'t finish that, sorry. I can send your request to our support team: just say "contact support". Or reach us from the Contact page (/contact).';
+// The model's reply contained a card number or credential (spec 016): it's replaced by this.
+export const SENSITIVE_REPLY = "Sorry, I can't share that here.";
 export const REFUSAL_REPLY =
   "Sorry, I can't help with that here. If you need help with an order or your account, please contact us from the Contact page (/contact).";

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { Command, MemorySaver } from '@langchain/langgraph';
 import { STEP_BUDGET } from './config';
@@ -6,7 +6,7 @@ import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMI
 import logger from '../utils/logger';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { GIVE_UP_REPLY, REFUSAL_REPLY, SYSTEM_PROMPT } from './prompt';
+import { GIVE_UP_REPLY, REFUSAL_REPLY, SENSITIVE_REPLY, SYSTEM_PROMPT } from './prompt';
 import { toAgentEvents, toolStartEvent, visibleText } from './stream';
 import { memoryLimiters, recordingTool, ScriptedChatModel, toolCall } from './test-utils';
 import { setAgentLimiters } from './limits';
@@ -15,6 +15,8 @@ import { askStoreKnowledgeTool } from './tools/ask-store-knowledge';
 
 const knowledge = vi.hoisted(() => ({ askKnowledge: vi.fn() }));
 vi.mock('./rag/knowledge.js', () => knowledge);
+const alerts = vi.hoisted(() => ({ raiseAlert: vi.fn(async () => {}) }));
+vi.mock('./alerts.js', () => alerts);
 
 const run = async (model: ScriptedChatModel, tools: ReturnType<typeof recordingTool>[], threadId = 't1', message = 'hi', checkpointer = new MemorySaver()) => {
   const graph = buildAgentGraph({ model, tools: tools.map((t) => t.tool), checkpointer, userId: 'u1' });
@@ -312,6 +314,65 @@ describe('Opus escalation (spec 015)', () => {
     // The whole visible history: the question, three calls and their results.
     expect(body.messages.filter((m: { role: string }) => m.role === 'assistant')).toHaveLength(3);
     expect(lastText(state.messages as BaseMessage[])).toBe('Sorted.');
+  });
+});
+
+describe('sensitive data and the second confirmation check (spec 016)', () => {
+  const CARD = '4242 4242 4242 4242';
+  beforeEach(() => alerts.raiseAlert.mockClear());
+
+  const graphWith = (script: AIMessage[], tools: ReturnType<typeof recordingTool>[]) => {
+    const model = new ScriptedChatModel(script);
+    const graph = buildAgentGraph({ model, tools: tools.map((t) => t.tool), checkpointer: new MemorySaver(), userId: 'u1' });
+    return { model, graph, config: { configurable: { thread_id: 'guard' }, recursionLimit: RECURSION_LIMIT } };
+  };
+
+  it('does not run a call whose arguments carry a card number, and alerts', async () => {
+    const support = recordingTool('submit_support_request');
+    const { graph, config } = graphWith([toolCall('submit_support_request', { message: `my card ${CARD} was charged twice` }), new AIMessage('ok')], [support]);
+    const state = await graph.invoke({ messages: [new HumanMessage('help')], toolCalls: 0 }, config);
+    expect(support.runs).toHaveLength(0);
+    expect(String((state.messages as BaseMessage[]).find((m) => m instanceof ToolMessage)?.content)).toContain('Not run: it contained sensitive data.');
+    expect(alerts.raiseAlert).toHaveBeenCalledWith('sensitive_in_tool_args', expect.objectContaining({ userId: 'u1', tool: 'submit_support_request' }));
+    expect(JSON.stringify(alerts.raiseAlert.mock.calls)).not.toContain('4242');
+  });
+
+  it('redacts a tool result carrying a card number before the model sees it, and alerts', async () => {
+    const orders = recordingTool('view_orders', { orders: [{ note: `paid with ${CARD}` }] });
+    const { model, graph, config } = graphWith([toolCall('view_orders'), new AIMessage('Here are your orders.')], [orders]);
+    await graph.invoke({ messages: [new HumanMessage('my orders')], toolCalls: 0 }, config);
+    const seen = JSON.stringify(model.calls[1]);
+    expect(seen).not.toContain('4242');
+    expect(seen).toContain('[card number removed]');
+    expect(alerts.raiseAlert).toHaveBeenCalledWith('sensitive_in_tool_result', expect.objectContaining({ tool: 'view_orders' }));
+  });
+
+  it('replaces a model reply carrying a card number, and alerts', async () => {
+    const { graph, config } = graphWith([new AIMessage(`Your card ${CARD} is on file.`)], []);
+    const state = await graph.invoke({ messages: [new HumanMessage('hi')], toolCalls: 0 }, config);
+    expect(lastText(state.messages as BaseMessage[])).toBe(SENSITIVE_REPLY);
+    expect(JSON.stringify(state.messages)).not.toContain('4242');
+    expect(alerts.raiseAlert).toHaveBeenCalledWith('sensitive_in_model_output', { userId: 'u1', thread: 'guard' });
+  });
+
+  it('refuses a confirm-required call that reaches the tools without an approval, and alerts', async () => {
+    const clear = recordingTool('clear_cart', {}, { kind: 'write', confirmRequired: true });
+    const { graph, config } = graphWith([new AIMessage('ok')], [clear]);
+    // Simulates a gate bypass: jump straight to the tools node with a pending clear_cart.
+    const bypass = new Command({ goto: 'tools', update: { messages: [new HumanMessage('x'), toolCall('clear_cart')] } });
+    const state = await graph.invoke(bypass as never, config);
+    expect(clear.runs).toHaveLength(0);
+    expect(String((state.messages as BaseMessage[]).find((m) => m instanceof ToolMessage)?.content)).toContain("Not run: it wasn't confirmed.");
+    expect(alerts.raiseAlert).toHaveBeenCalledWith('unconfirmed_write', expect.objectContaining({ tool: 'clear_cart' }));
+  });
+
+  it('runs a confirmed call as before, with no alert', async () => {
+    const clear = recordingTool('clear_cart', {}, { kind: 'write', confirmRequired: true });
+    const { graph, config } = graphWith([toolCall('clear_cart'), new AIMessage('Cleared.')], [clear]);
+    await graph.invoke({ messages: [new HumanMessage('empty my cart')], toolCalls: 0 }, config);
+    await graph.invoke(new Command({ resume: { approved: true } }), config);
+    expect(clear.runs).toHaveLength(1);
+    expect(alerts.raiseAlert).not.toHaveBeenCalled();
   });
 });
 

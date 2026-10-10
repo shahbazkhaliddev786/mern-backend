@@ -10,6 +10,7 @@ import { claimConfirmation, createCheckpointer } from './checkpointer.js';
 import { PROMPT_VERSION, type AgentConfig } from './config.js';
 import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMIT } from './graph.js';
 import { consumeBudgets } from './limits.js';
+import { StreamRedactor } from './guard.js';
 import { toAgentEvents, toolStartEvent, type AgentEvent } from './stream.js';
 import { buildToolsForRequest, summarizeConfirmation } from './tools/index.js';
 
@@ -73,6 +74,11 @@ async function allowEscalation(userId: string): Promise<boolean> {
 export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps): AsyncGenerator<AgentEvent> {
   const threadId = turn.threadId ?? crypto.randomUUID();
   const thread = checkpointThreadId(turn.userId, threadId);
+  const redactor = new StreamRedactor();
+  function* flushText(): Generator<AgentEvent> {
+    const text = redactor.flush();
+    if (text) yield { event: 'token', data: { text } };
+  }
   try {
     const ctx = { userId: turn.userId };
     const tools = buildToolsForRequest(ctx);
@@ -120,7 +126,7 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
         return;
       }
       // A new message starts a new turn: the step counter, call record and escalation start again.
-      input = { messages: [new HumanMessage(turn.message ?? '')], toolCalls: 0, escalated: false, turnCalls: [] };
+      input = { messages: [new HumanMessage(turn.message ?? '')], toolCalls: 0, escalated: false, turnCalls: [], confirmedCalls: [] };
     }
 
     const stream = await graph.stream(
@@ -133,9 +139,23 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
         metadata: { user: hash(turn.userId), threadId },
       },
     );
-    for await (const chunk of stream) yield* toAgentEvents(chunk as [string, unknown], { confirmRequired });
+    for await (const chunk of stream) {
+      for (const event of toAgentEvents(chunk as [string, unknown], { confirmRequired })) {
+        // Spec 016: text is redacted on its way out. The held-back tail is released before any
+        // other event, so the order of text and status chips is unchanged.
+        if (event.event === 'token') {
+          const text = redactor.push(event.data.text);
+          if (text) yield { event: 'token', data: { text } };
+          continue;
+        }
+        yield* flushText();
+        yield event;
+      }
+    }
+    yield* flushText();
   } catch (error) {
     if (turn.signal?.aborted) return; // The customer left; nobody is listening.
+    yield* flushText();
     logger.error('AGENT_TURN_FAILED', { userId: turn.userId, threadId, error: error instanceof Error ? error.message : String(error) });
     const retryable = isRetryable(error);
     yield {

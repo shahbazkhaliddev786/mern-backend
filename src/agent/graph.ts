@@ -12,8 +12,11 @@ import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import { ToolNode } from '@langchain/langgraph/prebuilt';
 import logger from '../utils/logger.js';
 import { AGENT_EFFORT, AGENT_MODELS, STEP_BUDGET, type AgentConfig } from './config.js';
-import { GIVE_UP_REPLY, REFUSAL_REPLY, SYSTEM_PROMPT } from './prompt.js';
-import { isToolError, visibleText } from './stream.js';
+import crypto from 'node:crypto';
+import { raiseAlert } from './alerts.js';
+import { findSensitive, redact } from './guard.js';
+import { GIVE_UP_REPLY, REFUSAL_REPLY, SENSITIVE_REPLY, SYSTEM_PROMPT } from './prompt.js';
+import { HISTORY_ONLY_PREFIX, isToolError, visibleText } from './stream.js';
 
 export const AgentState = Annotation.Root({
   ...MessagesAnnotation.spec,
@@ -23,6 +26,9 @@ export const AgentState = Annotation.Root({
   // this turn has run (for loop and repeated-error detection).
   escalated: Annotation<boolean>({ reducer: (_previous, next) => next, default: () => false }),
   turnCalls: Annotation<TurnCall[]>({ reducer: (_previous, next) => next, default: () => [] }),
+  // Spec 016: tool-call ids the customer approved at the gate. The tools node runs a
+  // confirm-required call only if its id is here — a second check behind the gate.
+  confirmedCalls: Annotation<string[]>({ reducer: (_previous, next) => next, default: () => [] }),
 });
 type State = typeof AgentState.State;
 
@@ -153,6 +159,13 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
       logger.warn('AGENT_REFUSAL', { userId, category: meta.stop_details?.category ?? null, escalated: state.escalated });
       return { messages: [new AIMessage(REFUSAL_REPLY)] };
     }
+    // Spec 016: a reply carrying a card number or credential never enters the history.
+    if (findSensitive(visibleText(response.content)).length > 0) {
+      void raiseAlert('sensitive_in_model_output', { userId, thread: threadOf(config) });
+      // The customer already saw the reply, redacted as it streamed; this replaces it in the
+      // history only, so the stream skips it (HISTORY_ONLY_PREFIX).
+      return { messages: [new AIMessage({ content: SENSITIVE_REPLY, id: `${HISTORY_ONLY_PREFIX}${crypto.randomUUID()}` })] };
+    }
     if (state.escalated && pendingToolCalls(response).length === 0) {
       logger.info('AGENT_ESCALATION_RESOLVED', { userId, thread: threadOf(config), toolCalls: state.toolCalls });
     }
@@ -160,8 +173,41 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
   };
 
   const runTools = async (state: State, config: LangGraphRunnableConfig) => {
-    const calls = pendingToolCalls(state.messages.at(-1)) as ToolCall[];
-    const result = (await toolNode.invoke(state)) as { messages: BaseMessage[] };
+    const thread = threadOf(config);
+    const last = state.messages.at(-1) as AIMessage;
+    const calls = pendingToolCalls(last) as ToolCall[];
+
+    // Spec 016: calls that must not run — a confirm-required call with no recorded approval, or
+    // arguments carrying a card number or credential. Each still gets a result.
+    const refused = new Map<string, string>();
+    for (const call of calls) {
+      const context = { userId, thread, tool: call.name, toolCallId: call.id ?? '' };
+      if (needsConfirmation(call) && !state.confirmedCalls.includes(call.id ?? '')) {
+        refused.set(call.id ?? '', "Not run: it wasn't confirmed.");
+        void raiseAlert('unconfirmed_write', context);
+      } else if (findSensitive(JSON.stringify(call.args ?? {})).length > 0) {
+        refused.set(call.id ?? '', 'Not run: it contained sensitive data.');
+        void raiseAlert('sensitive_in_tool_args', context);
+      }
+    }
+    const allowed = calls.filter((call) => !refused.has(call.id ?? ''));
+    const ran = allowed.length
+      ? ((await toolNode.invoke({
+          messages: [...state.messages.slice(0, -1), new AIMessage({ content: last.content, tool_calls: allowed, ...(last.id ? { id: last.id } : {}) })],
+        })) as { messages: BaseMessage[] }).messages
+      : [];
+    // A result carrying sensitive data is redacted before the model sees it.
+    const checked = ran.map((message) => {
+      const text = visibleText(message.content);
+      if (findSensitive(text).length === 0) return message;
+      const tool = message as ToolMessage;
+      void raiseAlert('sensitive_in_tool_result', { userId, thread, tool: tool.name ?? '', toolCallId: tool.tool_call_id });
+      return new ToolMessage({ tool_call_id: tool.tool_call_id, name: tool.name ?? '', content: redact(text) });
+    });
+    const byId = new Map(checked.map((message) => [(message as ToolMessage).tool_call_id, message]));
+    const result = {
+      messages: calls.map((call) => (refused.has(call.id ?? '') ? answer(call, refused.get(call.id ?? '') as string) : (byId.get(call.id ?? '') as BaseMessage))),
+    };
     // Audit trail for every write (security.md §11): ids only, no arguments that could hold personal data.
     for (const message of result.messages) {
       const call = calls.find((c) => c.id === (message as ToolMessage).tool_call_id);
@@ -175,11 +221,13 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
         outcome: isToolError(message.content) ? 'error' : 'ok',
       });
     }
-    const ran: TurnCall[] = result.messages.map((message) => {
+    // Refused calls aren't tool failures: Opus couldn't fix them either (spec 015).
+    const record: TurnCall[] = result.messages.map((message) => {
       const call = calls.find((c) => c.id === (message as ToolMessage).tool_call_id);
-      return { key: call ? callKey(call) : '', tool: message.name ?? call?.name ?? '', error: isFailure(message.content) };
+      const id = call?.id ?? '';
+      return { key: call ? callKey(call) : '', tool: message.name ?? call?.name ?? '', error: !refused.has(id) && isFailure(message.content) };
     });
-    return { messages: result.messages, toolCalls: state.toolCalls + calls.length, turnCalls: [...state.turnCalls, ...ran] };
+    return { messages: result.messages, toolCalls: state.toolCalls + calls.length, turnCalls: [...state.turnCalls, ...record] };
   };
 
   // The confirmation gate (spec 008, security.md §6). Only reads before interrupt(): on resume
@@ -195,7 +243,7 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
     const decision = interrupt<ConfirmRequest, ConfirmDecision>({ tool: call.name, args: call.args, summary });
     const approved = decision?.approved === true;
     logger.info('AGENT_CONFIRMATION', { userId, thread: threadOf(config), tool: call.name, toolCallId: call.id, decision: approved ? 'approved' : 'declined' });
-    if (approved) return new Command({ goto: 'tools' });
+    if (approved) return new Command({ goto: 'tools', update: { confirmedCalls: [...state.confirmedCalls, call.id ?? ''] } });
     return new Command({ goto: 'agent', update: { messages: calls.map((c) => answer(c, 'Not run: the customer declined.')) } });
   };
 

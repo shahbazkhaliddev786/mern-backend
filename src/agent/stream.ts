@@ -30,6 +30,9 @@ export const TOOL_LABELS: Record<string, string> = {
   escalation: 'Taking a closer look…',
 };
 
+// Messages with ids starting with this go into the history but are never streamed (spec 016).
+export const HISTORY_ONLY_PREFIX = 'history-only-';
+
 // Nodes whose messages are the assistant speaking to the customer.
 const SPEAKING_NODES = new Set(['agent', 'give_up']);
 
@@ -63,7 +66,7 @@ export function* toAgentEvents([mode, payload]: StreamChunk, options: StreamOpti
   if (mode === 'messages') {
     const [message, metadata] = payload as [BaseMessage, { langgraph_node?: string }];
     if (!SPEAKING_NODES.has(metadata?.langgraph_node ?? '')) return;
-    if (message.getType() !== 'ai') return;
+    if (message.getType() !== 'ai' || message.id?.startsWith(HISTORY_ONLY_PREFIX)) return;
     const text = visibleText(message.content);
     if (text) yield { event: 'token', data: { text } };
     return;

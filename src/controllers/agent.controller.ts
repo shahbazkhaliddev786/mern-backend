@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { runChatTurn, type ChatDeps } from '../agent/chat.service.js';
 import { AgentConfigError, getAgentConfig, type AgentConfig } from '../agent/config.js';
 import { consumeBudgets, LimitStoreError, waitPhrase, type AgentBudget } from '../agent/limits.js';
+import { findSensitive } from '../agent/guard.js';
 import { formatSse } from '../agent/stream.js';
 import { createAvatarUpload, findOwnedUpload, formatSize } from '../services/upload.service.js';
 import { apiResponse } from '../utils/api.response.js';
@@ -23,6 +24,8 @@ export const chatRequestSchema = z.union([
 ]);
 
 const UNAVAILABLE = 'The shopping assistant is not available right now.';
+export const SENSITIVE_MESSAGE =
+  "For your security, don't share card numbers or passwords here. Payment happens only on Stripe's checkout page.";
 
 // Runs before auth: when the agent is off or misconfigured, nothing else matters.
 // Missing variable names go to the log, never to the client.
@@ -76,6 +79,12 @@ export const createChatHandler =
     // An attachment must exist and belong to this customer. The model learns of it only through
     // this server-written note: name, size and an opaque id, never the image (security.md §9).
     let message = 'message' in body ? body.message : undefined;
+    // Spec 016: a card number or credential never reaches the model, the conversation or a log.
+    const sensitive = message ? findSensitive(message) : [];
+    if (sensitive.length > 0) {
+      logger.warn('AGENT_SENSITIVE_INPUT', { userId, kinds: sensitive });
+      return apiResponse(res, 400, 'error', SENSITIVE_MESSAGE);
+    }
     if ('uploadId' in body && body.uploadId) {
       const upload = await findOwnedUpload(userId, body.uploadId);
       if (!upload) return apiResponse(res, 400, 'error', 'That attachment has expired. Please attach it again.');

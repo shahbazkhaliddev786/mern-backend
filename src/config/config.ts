@@ -22,4 +22,11 @@ export default {
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || '',
     FRONTEND_URL: process.env.FRONTEND_URL || 'https://mern-frontend-seven-iota.vercel.app',
     SUPPORT_WEBHOOK_URL: process.env.SUPPORT_WEBHOOK_URL || '',
+    // AI shopping agent — checked lazily by getAgentConfig() in src/agent/config.ts
+    AGENT_ENABLED: process.env.AGENT_ENABLED || 'false',
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+    VOYAGE_API_KEY: process.env.VOYAGE_API_KEY || '',
+    LANGSMITH_TRACING: process.env.LANGSMITH_TRACING || 'false',
+    LANGSMITH_API_KEY: process.env.LANGSMITH_API_KEY || '',
+    LANGSMITH_PROJECT: process.env.LANGSMITH_PROJECT || 'aljo-store-agent',
 }

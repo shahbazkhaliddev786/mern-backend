@@ -29,5 +29,5 @@ Add a row when a spec is created; update its status as it moves.
 |---|---|---|---|---|
 | 001 | [LangChain binding check](./001-m1-langchain-binding-check.md) | M1 | In progress | — |
 | 002 | [Interrupt and resume across requests](./002-m1-interrupt-resume-across-requests.md) | M1 | Done | `6ec320b` |
-| 003 | [Agent config and checkpointer setup](./003-m1-agent-config-and-checkpointer-setup.md) | M1 | Draft | — |
+| 003 | [Agent config and checkpointer setup](./003-m1-agent-config-and-checkpointer-setup.md) | M1 | Done | this commit |
 | 004 | [Vercel streaming check](./004-m1-vercel-streaming-check.md) | M1 | Draft | — |

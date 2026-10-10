@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M1 — Spikes & foundations ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -85,22 +85,22 @@ export function createCheckpointer(connection = mongoose.connection): MongoDBSav
 
 ## Tasks
 
-- [ ] `config.ts`: add the six variables
-- [ ] `.env.example`: replace the stale agent block with the documented one
-- [ ] `src/agent/config.ts` with `getAgentConfig()` and the constants
-- [ ] `src/agent/checkpointer.ts`
-- [ ] `src/agent/setup.ts` + `agent:setup` script in `package.json`
-- [ ] `src/agent/config.test.ts`
-- [ ] Run `agent:setup` twice against the local MongoDB 7 and record the indexes
-- [ ] Update `phases.md` §0 and the spec index
+- [x] `config.ts`: add the six variables
+- [x] `.env.example`: replace the stale agent block with the documented one
+- [x] `src/agent/config.ts` with `getAgentConfig()` and the constants
+- [x] `src/agent/checkpointer.ts`
+- [x] `src/agent/setup.ts` + `agent:setup` script in `package.json`
+- [x] `src/agent/config.test.ts`
+- [x] Run `agent:setup` twice against the local MongoDB 7 and record the indexes
+- [x] Update `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] With no agent variables set, the server boots and `npm test` passes — the existing 51 tests plus the new ones
-- [ ] `getAgentConfig()` returns the settings when `AGENT_ENABLED` is false or everything required is set, and throws one `AgentConfigError` listing every missing variable otherwise — unit tests
-- [ ] `npm run agent:setup` creates TTL indexes (2,592,000 s) on `checkpoints`, `checkpoint_writes` and `confirm_claims`, and a second run succeeds with the same indexes — checked against local MongoDB 7, output recorded in Results
-- [ ] `.env.example` has no `GEMINI_*`, `REDIS_*`, `CHAT_*`, `LANGCHAIN_*`, `MOCK_EVAL` or `TYPESENSE_*` entries, and documents every variable in the table above — checked with `grep`
-- [ ] `npm run lint` (0 errors) and `npm run build` pass
+- [x] With no agent variables set, the server boots and `npm test` passes — `/api/v1/health` answered with none of the six variables set; `npm test` 58/58 (51 existing + 7 new)
+- [x] `getAgentConfig()` returns the settings when `AGENT_ENABLED` is false or everything required is set, and throws one `AgentConfigError` listing every missing variable otherwise — `src/agent/config.test.ts`
+- [x] `npm run agent:setup` creates TTL indexes (2,592,000 s) on `checkpoints`, `checkpoint_writes` and `confirm_claims`, and a second run succeeds with the same indexes — see Results
+- [x] `.env.example` has no `GEMINI_*`, `REDIS_*`, `CHAT_*`, `LANGCHAIN_*`, `MOCK_EVAL` or `TYPESENSE_*` entries, and documents every variable in the table above — `grep` finds 0 matches
+- [x] `npm run lint` (0 errors) and `npm run build` pass — lint 0 errors (106 existing `any` warnings); build emits `dist/agent/`
 
 ## Test plan
 
@@ -109,13 +109,29 @@ export function createCheckpointer(connection = mongoose.connection): MongoDBSav
 
 ## Open questions
 
-- **`AGENT_ENABLED` default:** `false` everywhere (recommended — the agent is switched on per environment once it's ready), or `true` in development?
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the work is done._
+**2026-10-10**, local MongoDB 7:
+
+```text
+$ DATABASE_URL=mongodb://127.0.0.1:27017/aljo_agent_setup npm run agent:setup   # run 1 and run 2: identical, exit 0, ~3 s
+Agent setup on database "aljo_agent_setup":
+  checkpoints: {"_id":1}, {"thread_id":1,"checkpoint_ns":1,"checkpoint_id":-1}, {"upserted_at":1} ttl=2592000s
+  checkpoint_writes: {"_id":1}, {"thread_id":1,"checkpoint_ns":1,"checkpoint_id":1,"task_id":1,"idx":1}, {"upserted_at":1} ttl=2592000s
+  confirm_claims: {"_id":1}, {"createdAt":1} ttl=2592000s
+
+$ DATABASE_URL=mongodb://127.0.0.1:1/x npm run agent:setup
+Agent setup failed: connect ECONNREFUSED 127.0.0.1:1        # exit 1
+```
+
+The server booted with none of the six agent variables set (placeholder Cloudinary values were needed — the store requires them, unrelated to the agent) and `/api/v1/health` answered.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved. `AGENT_ENABLED` defaults to `false` in every environment | The agent is switched on per environment once it's ready; the same flag is the production kill switch |
+| 2026-10-10 | `agent:setup` prints to stdout and ends with an explicit `process.exit` | The app logger's MongoDB transport opens its own connection at import, so the script never exited; closing the logger instead cut off its in-flight writes (`MongoExpiredSessionError`). A one-off command's output is for the operator anyway |
+| 2026-10-10 | `getAgentConfig()` takes the `config` object (injectable for tests) rather than reading `process.env` itself | One place reads the environment (`config.ts`, after `dotenv-flow`); the tests pass plain objects |

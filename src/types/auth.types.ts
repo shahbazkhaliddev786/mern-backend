@@ -49,5 +49,19 @@ export interface ResetPasswordWithOtpBody {
 }
 
 export interface DeleteAccountBody {
-  password: string; 
+  password: string;
+}
+
+export interface ChangePasswordBody {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface RequestEmailChangeBody {
+  newEmail: string;
+  currentPassword: string;
+}
+
+export interface ConfirmEmailChangeBody {
+  otp: string;
 }

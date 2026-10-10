@@ -27,7 +27,10 @@ export type {
     UpdateProfileBody,
     ForgotPasswordBody,
     ResetPasswordWithOtpBody,
-    DeleteAccountBody
+    DeleteAccountBody,
+    ChangePasswordBody,
+    RequestEmailChangeBody,
+    ConfirmEmailChangeBody
 } from './auth.types.js'
 
 export type {

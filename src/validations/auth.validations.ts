@@ -1,5 +1,31 @@
 import { body } from 'express-validator';
 
+// The same rules everywhere a password is set: sign-up, reset and change.
+const strongPassword = (field: string) =>
+  body(field)
+    .notEmpty()
+    .withMessage('Password is required')
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long')
+    .matches(/[A-Z]/)
+    .withMessage('Password must contain at least one uppercase letter')
+    .matches(/[a-z]/)
+    .withMessage('Password must contain at least one lowercase letter')
+    .matches(/[0-9]/)
+    .withMessage('Password must contain at least one number')
+    .matches(/[!@#$%^&*]/)
+    .withMessage('Password must contain at least one special character (!@#$%^&*)');
+
+const sixDigitCode = (field: string) =>
+  body(field)
+    .trim()
+    .notEmpty()
+    .withMessage('OTP is required')
+    .isLength({ min: 6, max: 6 })
+    .withMessage('OTP must be 6 digits')
+    .isNumeric()
+    .withMessage('OTP must contain only numbers');
+
 export const registerValidation = [
   body('name')
     .trim()
@@ -16,19 +42,7 @@ export const registerValidation = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail(),
 
-  body('password')
-    .notEmpty()
-    .withMessage('Password is required')
-    .isLength({ min: 6 })
-    .withMessage('Password must be at least 8 characters long')
-    .matches(/[A-Z]/)
-    .withMessage('Password must contain at least one uppercase letter')
-    .matches(/[a-z]/)
-    .withMessage('Password must contain at least one lowercase letter')
-    .matches(/[0-9]/)
-    .withMessage('Password must contain at least one number')
-    .matches(/[!@#$%^&*]/)
-    .withMessage('Password must contain at least one special character (!@#$%^&*)'),
+  strongPassword('password'),
 ];
 
 export const loginValidation = [
@@ -64,14 +78,7 @@ export const verifyOtpValidation = [
     .withMessage('Please provide a valid email')
     .normalizeEmail(),
 
-  body('otp')
-    .trim()
-    .notEmpty()
-    .withMessage('OTP is required')
-    .isLength({ min: 6, max: 6 })
-    .withMessage('OTP must be 6 digits')
-    .isNumeric()
-    .withMessage('OTP must contain only numbers'),
+  sixDigitCode('otp'),
 ];
 
 export const refreshTokenValidation = [
@@ -95,14 +102,9 @@ export const resetPasswordWithOtpValidation = [
     .withMessage('Valid email is required')
     .normalizeEmail(),
 
-  body('otp')
-    .isString()
-    .isLength({ min: 6, max: 6 })
-    .withMessage('OTP must be 6 digits'),
+  sixDigitCode('otp'),
 
-  body('newPassword')
-    .isLength({ min: 6 })
-    .withMessage('New password must be at least 6 characters'),
+  strongPassword('newPassword'),
 
   body('confirmPassword')
     .custom((value, { req }) => {
@@ -111,4 +113,30 @@ export const resetPasswordWithOtpValidation = [
       }
       return true;
     }),
+];
+
+export const changePasswordValidation = [
+  body('currentPassword')
+    .notEmpty()
+    .withMessage('Current password is required'),
+
+  strongPassword('newPassword'),
+];
+
+export const requestEmailChangeValidation = [
+  body('newEmail')
+    .trim()
+    .notEmpty()
+    .withMessage('New email is required')
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail(),
+
+  body('currentPassword')
+    .notEmpty()
+    .withMessage('Current password is required'),
+];
+
+export const confirmEmailChangeValidation = [
+  sixDigitCode('otp'),
 ];

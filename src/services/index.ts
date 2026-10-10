@@ -11,7 +11,10 @@ export {
     updateUserProfile,
     forgotPassword,
     resetPasswordWithOtp,
-    deleteUserAccount
+    deleteUserAccount,
+    changeUserPassword,
+    requestUserEmailChange,
+    confirmUserEmailChange
 } from './auth.service.js';
 
 export {

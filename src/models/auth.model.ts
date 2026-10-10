@@ -7,8 +7,12 @@ export interface IUser extends Document {
   password: string;
   profile?: string;
   isVerified: boolean;
-  refreshTokens: string[]; 
+  refreshTokens: string[];
   role?: string;
+  pendingEmail?: string | undefined;
+  pendingEmailOtpHash?: string | undefined;
+  pendingEmailExpiresAt?: Date | undefined;
+  pendingEmailAttempts?: number | undefined;
   createdAt: Date;
   updatedAt: Date;
 
@@ -24,6 +28,11 @@ const UserSchema: Schema = new Schema(
     isVerified: { type: Boolean, default: false },
     refreshTokens: [{ type: String }],
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
+    // An email change waiting for the code sent to the new address (see requestUserEmailChange).
+    pendingEmail: { type: String, lowercase: true, trim: true },
+    pendingEmailOtpHash: { type: String, select: false },
+    pendingEmailExpiresAt: { type: Date },
+    pendingEmailAttempts: { type: Number },
   },
   { timestamps: true }
 );

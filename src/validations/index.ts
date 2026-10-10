@@ -42,7 +42,10 @@ export {
     verifyOtpValidation,
     refreshTokenValidation,
     forgotPasswordValidation,
-    resetPasswordWithOtpValidation
+    resetPasswordWithOtpValidation,
+    changePasswordValidation,
+    requestEmailChangeValidation,
+    confirmEmailChangeValidation
 } from './auth.validations.js';
 
 export {

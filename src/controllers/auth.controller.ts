@@ -13,7 +13,11 @@ import {
   updateUserProfile,
   forgotPassword,
   resetPasswordWithOtp,
-  deleteUserAccount
+  deleteUserAccount,
+  changeUserPassword,
+  requestUserEmailChange,
+  confirmUserEmailChange,
+  CredentialError
 } from '../services/auth.service.js';
 import cloudinary from '../utils/cloudinary.js';
 import bufferGenerator from '../utils/buffer.generator.js';
@@ -27,9 +31,21 @@ import type {
   UpdateProfileBody,
   ForgotPasswordBody,
   ResetPasswordWithOtpBody,
-  DeleteAccountBody
+  DeleteAccountBody,
+  ChangePasswordBody,
+  RequestEmailChangeBody,
+  ConfirmEmailChangeBody
 } from '../types/index.js'
 import { mergeGuestCartOnLogin } from '../services/guest-cart.service.js';
+
+// Credential failures (wrong code, wrong password, address taken) are the
+// caller's to fix, so they get a 4xx instead of the global handler's 500.
+const credentialFailure = (res: Response, error: unknown) => {
+  if (error instanceof CredentialError) {
+    return apiResponse(res, error.status, 'error', error.message);
+  }
+  throw error;
+};
 
 // register
 export const register = asyncHandler(async (req: Request<{},{},RegisterBody>, res: Response) => {
@@ -98,7 +114,13 @@ export const resendOTP = asyncHandler(async (req: Request<{},{},ResendOtpBody>, 
 export const verifyOtp = asyncHandler(async (req: Request<{},{},VerifyOtpBody>, res: Response) => {
   const { email, otp } = req.body;
 
-  const { user, ...tokens } = await verifyOTP(email.toLowerCase().trim(), otp);
+  let verified;
+  try {
+    verified = await verifyOTP(email.toLowerCase().trim(), otp);
+  } catch (error) {
+    return credentialFailure(res, error);
+  }
+  const { user, ...tokens } = verified;
 
   // Merge guest cart items into the newly-verified user's cart
   try {
@@ -250,11 +272,65 @@ export const resetPassword = asyncHandler(async (req: Request<{}, {}, ResetPassw
     return apiResponse(res, 400, 'error', 'Passwords do not match');
   }
 
-  await resetPasswordWithOtp(email, otp, newPassword);
+  try {
+    await resetPasswordWithOtp(email, otp, newPassword);
+  } catch (error) {
+    return credentialFailure(res, error);
+  }
 
   logger.info('Password reset with OTP successful', { email });
 
   return apiResponse(res, 200, 'success', 'Password reset successfully. You can now login.');
+});
+
+// Change password (re-authenticates with the current one)
+export const changePassword = asyncHandler(async (req: Request<{}, {}, ChangePasswordBody>, res: Response) => {
+  const userId = (req as any).user._id.toString();
+  const { currentPassword, newPassword } = req.body;
+
+  let tokens;
+  try {
+    tokens = await changeUserPassword(userId, currentPassword, newPassword);
+  } catch (error) {
+    return credentialFailure(res, error);
+  }
+
+  logger.info('User password changed', { userId });
+
+  // The new tokens keep this device signed in; every other session was revoked.
+  return apiResponse(res, 200, 'success', 'Password updated. Your other devices have been signed out.', tokens);
+});
+
+// Email change, step 1: send a code to the new address
+export const requestEmailChange = asyncHandler(async (req: Request<{}, {}, RequestEmailChangeBody>, res: Response) => {
+  const userId = (req as any).user._id.toString();
+  const { newEmail, currentPassword } = req.body;
+
+  try {
+    await requestUserEmailChange(userId, newEmail, currentPassword);
+  } catch (error) {
+    return credentialFailure(res, error);
+  }
+
+  logger.info('Email change requested', { userId });
+
+  return apiResponse(res, 200, 'success', 'We sent a code to your new email address.');
+});
+
+// Email change, step 2: confirm with the code sent to the new address
+export const confirmEmailChange = asyncHandler(async (req: Request<{}, {}, ConfirmEmailChangeBody>, res: Response) => {
+  const userId = (req as any).user._id.toString();
+
+  let result;
+  try {
+    result = await confirmUserEmailChange(userId, req.body.otp);
+  } catch (error) {
+    return credentialFailure(res, error);
+  }
+
+  logger.info('Email address changed', { userId });
+
+  return apiResponse(res, 200, 'success', 'Email address updated', result);
 });
 
 // Delete account

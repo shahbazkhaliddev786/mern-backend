@@ -35,7 +35,10 @@ export {
   updateProfile,
   forgetPassword,
   resetPassword,
-  deleteAccount
+  deleteAccount,
+  changePassword,
+  requestEmailChange,
+  confirmEmailChange
 } from './auth.controller.js';
 
 export {

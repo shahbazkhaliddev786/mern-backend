@@ -12,14 +12,35 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+export type OtpEmailPurpose = 'verify' | 'reset' | 'email_change';
+
+const OTP_EMAIL_COPY: Record<OtpEmailPurpose, { subject: string; title: string; message: string }> = {
+  verify: {
+    subject: 'Your Aljo Store Verification Code',
+    title: 'Verify your email address',
+    message: 'Thanks for signing up! Please use the following one-time code to complete your registration.',
+  },
+  reset: {
+    subject: 'Reset your Aljo Store password',
+    title: 'Reset your password',
+    message: 'Use the following one-time code to choose a new password for your Aljo Store account.',
+  },
+  email_change: {
+    subject: 'Confirm your new Aljo Store email',
+    title: 'Confirm your new email address',
+    message: 'Use the following one-time code to finish changing the email address on your Aljo Store account.',
+  },
+};
+
 // Google-style OTP Email Template
-export const sendOTPEmail = async (to: string, otp: string) => {
+export const sendOTPEmail = async (to: string, otp: string, purpose: OtpEmailPurpose = 'verify') => {
+  const copy = OTP_EMAIL_COPY[purpose];
   const htmlTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Verify your Aljo Store account</title>
+  <title>${copy.title}</title>
   <style>
     body {
       font-family: 'Roboto', 'Helvetica', Arial, sans-serif;
@@ -106,9 +127,9 @@ export const sendOTPEmail = async (to: string, otp: string) => {
       <div class="logo">Aljo Store</div>
     </div>
     <div class="content">
-      <h1 class="title">Verify your email address</h1>
+      <h1 class="title">${copy.title}</h1>
       <p class="message">
-        Thanks for signing up! Please use the following one-time code to complete your registration.
+        ${copy.message}
       </p>
       <div class="otp-box">
         <p class="otp">${otp}</p>
@@ -133,7 +154,7 @@ export const sendOTPEmail = async (to: string, otp: string) => {
   const mailOptions = {
     from: `"Aljo Store" <${config.GMAIL}>`,
     to,
-    subject: 'Your Aljo Store Verification Code',
+    subject: copy.subject,
     html: htmlTemplate,
   };
 

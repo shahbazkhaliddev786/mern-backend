@@ -1,0 +1,146 @@
+import { describe, it, expect } from 'vitest';
+import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
+import { MemorySaver } from '@langchain/langgraph';
+import { STEP_BUDGET } from './config';
+import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from './graph';
+import { REFUSAL_REPLY, STEP_BUDGET_REPLY, SYSTEM_PROMPT } from './prompt';
+import { toAgentEvents, visibleText } from './stream';
+import { recordingTool, ScriptedChatModel, toolCall } from './test-utils';
+
+const run = async (model: ScriptedChatModel, tools: ReturnType<typeof recordingTool>[], threadId = 't1', message = 'hi', checkpointer = new MemorySaver()) => {
+  const graph = buildAgentGraph({ model, tools: tools.map((t) => t.tool), checkpointer, userId: 'u1' });
+  const state = await graph.invoke(
+    { messages: [new HumanMessage(message)], toolCalls: 0 },
+    { configurable: { thread_id: threadId }, recursionLimit: RECURSION_LIMIT },
+  );
+  return state.messages as BaseMessage[];
+};
+
+const lastText = (messages: BaseMessage[]) => visibleText(messages.at(-1)!.content);
+
+describe('agent graph', () => {
+  it('calls a tool, then answers from its result', async () => {
+    const search = recordingTool('search_products', { results: [{ name: 'Trail Runner' }] });
+    const model = new ScriptedChatModel([toolCall('search_products', { query: 'shoes' }), new AIMessage('Found Trail Runner.')]);
+    const messages = await run(model, [search]);
+    expect(search.runs).toEqual([{ query: 'shoes' }]);
+    expect(lastText(messages)).toBe('Found Trail Runner.');
+    // The second model call saw the tool result.
+    expect(model.calls[1]!.some((m) => m instanceof ToolMessage && String(m.content).includes('Trail Runner'))).toBe(true);
+  });
+
+  it('sends the cached system prompt first on every call and binds tools strictly', async () => {
+    const model = new ScriptedChatModel([toolCall('view_cart'), new AIMessage('Your cart is empty.')]);
+    await run(model, [recordingTool('view_cart')]);
+    for (const call of model.calls) {
+      expect(call[0]!.getType()).toBe('system');
+      expect(call[0]!.content).toEqual([{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }]);
+    }
+    expect(model.bindings[0]!.kwargs).toEqual({ strict: true });
+  });
+
+  it(`stops a turn after ${STEP_BUDGET} tool calls and answers every pending call`, async () => {
+    const looping = recordingTool('search_products');
+    const model = new ScriptedChatModel(Array.from({ length: STEP_BUDGET + 3 }, () => toolCall('search_products')));
+    const messages = await run(model, [looping]);
+    expect(looping.runs).toHaveLength(STEP_BUDGET);
+    expect(lastText(messages)).toBe(STEP_BUDGET_REPLY);
+    // Every tool call in history has a result, so the next turn's request stays valid.
+    const callIds = messages.flatMap((m) => (m as AIMessage).tool_calls?.map((c) => c.id) ?? []);
+    const resultIds = messages.filter((m) => m instanceof ToolMessage).map((m) => (m as ToolMessage).tool_call_id);
+    expect(resultIds.sort()).toEqual(callIds.sort());
+  });
+
+  it('counts tool calls per turn, not per conversation', async () => {
+    const tool = recordingTool('search_products');
+    const fiveCalls = () => [...Array.from({ length: 5 }, () => toolCall('search_products')), new AIMessage('done')];
+    const model = new ScriptedChatModel([...fiveCalls(), ...fiveCalls()]);
+    const checkpointer = new MemorySaver();
+    await run(model, [tool], 'same-thread', 'first', checkpointer);
+    const messages = await run(model, [tool], 'same-thread', 'second', checkpointer);
+    expect(tool.runs).toHaveLength(10);
+    expect(lastText(messages)).toBe('done');
+  });
+
+  it('ends a refused turn with the safe reply and runs no tool', async () => {
+    const tool = recordingTool('view_orders');
+    const refusal = toolCall('view_orders');
+    refusal.response_metadata = { stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'cyber' } };
+    const messages = await run(new ScriptedChatModel([refusal]), [tool]);
+    expect(tool.runs).toHaveLength(0);
+    expect(lastText(messages)).toBe(REFUSAL_REPLY);
+  });
+});
+
+describe('request sent to Claude', () => {
+  it('has the system prompt first, adaptive thinking, explicit effort, strict tools and no tool_choice', async () => {
+    const bodies: Record<string, any>[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any -- captured JSON body
+    const fetch = (async (_url: unknown, init?: RequestInit) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      const message = {
+        id: 'msg_test',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-sonnet-5-5',
+        content: [{ type: 'text', text: 'Hello!' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: { input_tokens: 10, output_tokens: 2 },
+      };
+      return new Response(JSON.stringify(message), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof globalThis.fetch;
+    const model = createChatModel(
+      { enabled: true, anthropicApiKey: 'test-key', voyageApiKey: '', tracing: { enabled: false, apiKey: '', project: '' } },
+      { fetch, maxRetries: 0 },
+    );
+    const graph = buildAgentGraph({ model, tools: [recordingTool('view_cart').tool], checkpointer: new MemorySaver(), userId: 'u1' });
+    await graph.invoke({ messages: [new HumanMessage('hi')], toolCalls: 0 }, { configurable: { thread_id: 'req' } });
+
+    const body = bodies[0]!;
+    expect(body.model).toBe('claude-sonnet-5-5');
+    expect(body.system).toEqual([{ type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }]);
+    expect(body.thinking).toEqual({ type: 'adaptive' });
+    expect(body.output_config).toEqual({ effort: 'low' });
+    expect(body.tools[0]).toMatchObject({ name: 'view_cart', strict: true });
+    expect(body.tool_choice).toBeUndefined();
+    expect(body.messages).toEqual([{ role: 'user', content: 'hi' }]);
+  });
+});
+
+describe('stream mapping', () => {
+  const events = (chunk: [string, unknown]) => [...toAgentEvents(chunk)];
+
+  it('turns agent text into tokens and skips thinking, tool input and other nodes', () => {
+    const chunk = new AIMessageChunk({
+      content: [
+        { type: 'thinking', thinking: 'secret reasoning' },
+        { type: 'text', text: 'Hello' },
+        { type: 'tool_use', id: 'x', name: 'view_cart', input: '{}' },
+      ],
+    });
+    expect(events(['messages', [chunk, { langgraph_node: 'agent' }]])).toEqual([{ event: 'token', data: { text: 'Hello' } }]);
+    expect(events(['messages', [new AIMessage('Stopped.'), { langgraph_node: 'budget_exceeded' }]])).toEqual([
+      { event: 'token', data: { text: 'Stopped.' } },
+    ]);
+    expect(events(['messages', [new ToolMessage({ tool_call_id: 'x', content: '{}' }), { langgraph_node: 'tools' }]])).toEqual([]);
+  });
+
+  it('emits tool_start for the agent\'s tool calls and tool_end for their results', () => {
+    expect(events(['updates', { agent: { messages: [toolCall('view_cart')] } }])).toEqual([
+      { event: 'tool_start', data: { tool: 'view_cart', label: 'Checking your cart…' } },
+    ]);
+    const ok = new ToolMessage({ tool_call_id: 'a', name: 'view_cart', content: '{"items":[]}' });
+    const failed = new ToolMessage({ tool_call_id: 'b', name: 'get_order_status', content: '{"error":"No order with that id on your account."}' });
+    expect(events(['updates', { tools: { messages: [ok, failed] } }])).toEqual([
+      { event: 'tool_end', data: { tool: 'view_cart', ok: true } },
+      { event: 'tool_end', data: { tool: 'get_order_status', ok: false } },
+    ]);
+  });
+
+  it('maps an interrupt to confirm_required with its id', () => {
+    const interrupt = { id: 'int-1', value: { tool: 'clear_cart', args: {}, summary: 'Remove 2 items?' } };
+    expect(events(['updates', { __interrupt__: [interrupt] }])).toEqual([
+      { event: 'confirm_required', data: { interruptId: 'int-1', tool: 'clear_cart', summary: 'Remove 2 items?' } },
+    ]);
+  });
+});

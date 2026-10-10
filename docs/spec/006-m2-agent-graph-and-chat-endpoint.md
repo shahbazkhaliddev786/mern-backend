@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Approved |
+| **Status** | In progress — code complete; real-model check pending |
 | **Milestone** | M2 — Agent core, read-only ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -102,25 +102,25 @@ START → agent → (tool calls?) → tools → agent → … → END
 
 ## Tasks
 
-- [ ] `prompt.ts`
-- [ ] `graph.ts` (agent node, `ToolNode`, step budget, refusal handling, checkpointer)
-- [ ] `stream.ts` (graph output → SSE events)
-- [ ] `chat.service.ts` (thread ownership, config check, runs the graph) + controller + `agent.routes.ts`, mounted in `loaders/routes.ts`
-- [ ] Tests (below)
+- [x] `prompt.ts`
+- [x] `graph.ts` (agent node, `ToolNode`, step budget, refusal handling, checkpointer)
+- [x] `stream.ts` (graph output → SSE events)
+- [x] `chat.service.ts` (thread ownership, runs the graph) + `controllers/agent.controller.ts` (config check, SSE) + `agent.routes.ts`, mounted in `loaders/routes.ts`
+- [x] Tests (below)
 - [ ] Manual check with the real model (once a key is available)
-- [ ] Update `phases.md` §0 (M2 done) and the spec index
+- [x] Update `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] `AGENT_ENABLED=false` → 503; missing key with the agent enabled → 503, with variable names in the log only — HTTP tests
-- [ ] Unauthenticated → 401; invalid body → 400 — HTTP tests
-- [ ] A scripted model that calls `search_products` and then answers produces `tool_start` → `tool_end` → `token`… → `done` over SSE — HTTP test
-- [ ] The second message on the same `threadId` sees the first turn's messages (memory works); the same `threadId` from another user sees nothing — test against MongoDB (skips without `MONGO_URL`)
-- [ ] A scripted model that keeps calling tools stops after 8 calls with the fixed reply — graph test
-- [ ] A refusal response ends the turn with the safe reply and runs no tool — graph test
-- [ ] The request sent to the model has the system prompt first, `thinking` adaptive, explicit effort, strict tools and no `tool_choice` — captured-request test, as in spec 001
-- [ ] Real model (manual, once keyed): "running shoes under $50", "what's in my cart?", "where is my last order?" answered from tool data, streamed — recorded in Results
-- [ ] `npm run lint` (0 errors), `npm run build`, `npm test` pass
+- [x] `AGENT_ENABLED=false` → 503; missing key with the agent enabled → 503, with variable names in the log only — HTTP tests, and against the real app
+- [x] Unauthenticated → 401; invalid body → 400 — HTTP tests (401 with the real `authMiddleware`)
+- [x] A scripted model that calls `search_products` and then answers produces `tool_start` → `tool_end` → `token` → `done` over SSE — HTTP test
+- [x] The second message on the same `threadId` sees the first turn's messages; the same `threadId` from another user sees nothing — HTTP test against MongoDB 7
+- [x] A scripted model that keeps calling tools stops after 8 calls with the fixed reply — graph test (and every pending tool call gets a result)
+- [x] A refusal response ends the turn with the safe reply and runs no tool — graph test
+- [x] The request sent to the model has the system prompt first, `thinking` adaptive, explicit effort, strict tools and no `tool_choice` — captured-request test through the real `ChatAnthropic`
+- [ ] Real model (manual, once keyed): "running shoes under $50", "what's in my cart?", "where is my last order?" answered from tool data, streamed — **pending the API key**
+- [x] `npm run lint` (0 errors), `npm run build`, `npm test` pass
 
 ## Test plan
 
@@ -136,10 +136,22 @@ _None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the work is done._
+**2026-10-10** — code complete; the real-model check waits on `ANTHROPIC_API_KEY`.
+- `npm test`: 93 passed, 7 skipped without MongoDB; with `MONGO_URL` (local MongoDB 7): **100/100**.
+- New tests: `src/agent/graph.test.ts` (9: graph, captured request, stream mapping) and `src/routes/agent.routes.test.ts` (7: availability, auth, validation, streamed turn, error event, memory and thread ownership).
+- In the running app (`npx tsx src/index.ts`): `POST /api/v1/agent/chat` → 503 with the agent off (the default); → 401 with it on and no token.
+- Lint 0 errors (106 existing warnings); `npm run build` clean; `test-utils.ts` excluded from `dist/`.
+
+Files: `src/agent/{prompt,graph,stream,chat.service,test-utils}.ts`, `src/controllers/agent.controller.ts`, `src/routes/agent.routes.ts` (+ export in `routes/index.ts`, mount in `loaders/routes.ts`), `tsconfig.json` (exclude `test-utils.ts`).
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
 | 2026-10-10 | Approved ("code m2"). Automated tests use a scripted model only; real-model checks stay manual until M7 | Free and deterministic in CI; no API key needed |
+| 2026-10-10 | `tool_start` comes from the agent node's completed message (`updates`), not from streamed tool-call fragments | One code path for streamed and non-streamed responses; the label shows as soon as the model finishes deciding, before the tool runs |
+| 2026-10-10 | When the step budget is hit, every pending tool call gets a "not run" result before the fixed reply | The API rejects a history with a `tool_use` that has no `tool_result`; without this, the customer's next message in that conversation would fail |
+| 2026-10-10 | The config check (`agentAvailable`) runs before auth | When the agent is off or misconfigured, every caller gets the same 503 |
+| 2026-10-10 | The disconnect signal comes from the response's `close` event, not the request's | On current Node, the request's `close` fires once its body is read, which would cancel every turn |
+| 2026-10-10 | The router takes `auth` and `deps` as options; `createChatModel` takes optional client options | Tests replace the session, the model and the checkpointer; one test captures the real `ChatAnthropic` request |
+| 2026-10-10 | `test-utils.ts` (scripted model, recording tool) lives next to the agent code and is excluded from the build in `tsconfig.json` | Shared by the graph and HTTP tests; must not ship |

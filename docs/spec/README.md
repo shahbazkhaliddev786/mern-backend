@@ -42,3 +42,4 @@ Add a row when a spec is created; update its status as it moves.
 | 013 | [Store knowledge (`ask_store_knowledge`)](./013-m5-store-knowledge.md) | M5 | Done | `bed57d4` |
 | 014 | [Per-user limits](./014-m6-per-user-limits.md) | M6 | Done | `b145da2` + `mern-frontend` `e1383c4` |
 | 015 | [Opus escalation for stuck turns](./015-m6-opus-escalation.md) | M6 | Done | `d7ddfcd` |
+| 016 | [Sensitive-data guard and urgent alerts](./016-m6-sensitive-data-guard-and-alerts.md) | M6 | Draft | — |

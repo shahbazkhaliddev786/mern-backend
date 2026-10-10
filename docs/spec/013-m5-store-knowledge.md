@@ -41,6 +41,7 @@ The agent answers questions about shipping, returns, payments, orders, accounts,
 - **Retrieval:** hybrid search, fusion, rerank and a relevance cut-off.
 - **The tool:** `ask_store_knowledge` (auto, read-only).
 - **Prompt:** the knowledge rules, and `PROMPT_VERSION` 6.
+- **Design docs:** drop the Haiku query rewrite from architecture.md §1, tech-stack.md Layers 3 and 5, and reconciliation Gap 3.
 - **Goldens:** a golden file for the knowledge evals, plus the DeepEval test that runs it.
 
 **Out:**
@@ -92,7 +93,7 @@ The embedder, reranker and search calls are injected (`RetrievalDeps`), so unit 
 
 **Tool** — `ask_store_knowledge({ question })`:
 - **Kind:** read, auto, no identity fields, built per request like the other tools.
-- **`question`:** 3–300 characters. The description asks for **a self-contained question** that resolves anything said earlier ("and for that?" → "What is the return window for shoes?"). See open question 1.
+- **`question`:** 3–300 characters. The description asks for **a self-contained question** that resolves anything said earlier ("and for that?" → "What is the return window for shoes?"). There is no separate query-rewrite step (decision log).
 - **Returns:**
   - `{ found: true, passages: [{ topic, question, text }] }`
   - or `{ found: false, contact: "…" }`. The contact text names the `/contact` page and hello@aljostore.com (`knowledge/contact-and-support.md`), and the offer of `submit_support_request`.
@@ -127,6 +128,7 @@ The embedder, reranker and search calls are injected (`RetrievalDeps`), so unit 
 - [ ] `ask_store_knowledge` tool, label, audit log; prompt + `PROMPT_VERSION` 6
 - [ ] Goldens + DeepEval test + `npm run eval:knowledge`
 - [ ] Tests (below)
+- [ ] Design docs: remove the query-rewrite step (architecture.md, tech-stack.md, reconciliation Gap 3, phases.md M5)
 - [ ] Update `phases.md` §0, `knowledge/README.md` (how to re-ingest), and the spec index
 
 ## Acceptance criteria
@@ -164,13 +166,11 @@ The embedder, reranker and search calls are injected (`RetrievalDeps`), so unit 
 
 ## Open questions
 
-1. **Keep the Haiku query rewrite?** The design adds a Haiku 5.5 step that turns the conversation into a standalone search query (reconciliation Gap 3). But here the search query isn't the customer's raw message: it's the tool's `question` argument, which Sonnet writes with the whole conversation in view.
-   - **Recommended:** drop the rewrite step, and have the tool description require a self-contained question. That's one fewer model call (latency and cost) and one less failure path. The goldens include follow-up questions, so if recall suffers, the rewrite comes back with evidence.
-   - **Alternative:** build it as designed. A Haiku call on every knowledge lookup, receiving the recent conversation, with the raw question as the fallback on a refusal.
-   - **If we drop it:** architecture.md §1, tech-stack.md Layers 3 and 5, and reconciliation Gap 3 get updated to match.
-2. **Is the production database on MongoDB Atlas?** `$vectorSearch` and `$search` only exist on Atlas (any tier, free M0 included) or Atlas local. If production runs on a self-hosted MongoDB, the retrieval design has to change before this is built. Please confirm which `DATABASE_URL` production uses.
+_None — resolved 2026-10-10, see the decision log._
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | No Haiku query rewrite; the tool takes a self-contained `question` written by the agent model | The agent model writes the search query with the whole conversation in view, so a rewrite step adds a model call and a failure path for little gain. Follow-up goldens check it; the rewrite comes back if recall suffers |
+| 2026-10-10 | Production runs on MongoDB Atlas (owner confirmed) | `$vectorSearch` and `$search` are available, so the design stands as written |

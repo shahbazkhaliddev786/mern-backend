@@ -31,5 +31,5 @@ Add a row when a spec is created; update its status as it moves.
 | 002 | [Interrupt and resume across requests](./002-m1-interrupt-resume-across-requests.md) | M1 | Done | `6ec320b` |
 | 003 | [Agent config and checkpointer setup](./003-m1-agent-config-and-checkpointer-setup.md) | M1 | Done | `f336c69` |
 | 004 | [Vercel streaming check](./004-m1-vercel-streaming-check.md) | M1 | Draft | — |
-| 005 | [Read tools](./005-m2-read-tools.md) | M2 | Done | this commit |
+| 005 | [Read tools](./005-m2-read-tools.md) | M2 | Done | `2f97266` |
 | 006 | [Agent graph and chat endpoint](./006-m2-agent-graph-and-chat-endpoint.md) | M2 | Approved | — |

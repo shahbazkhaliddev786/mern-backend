@@ -6,7 +6,7 @@
 | **Milestone** | M2 — Agent core, read-only ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | `2f97266` |
 
 ## Goal
 

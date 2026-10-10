@@ -9,6 +9,7 @@ import {
 import logger from '../utils/logger.js';
 import type { IOrder, IShippingAddress } from '../models/order.model.js';
 import mongoose from 'mongoose';
+import crypto from 'node:crypto';
 
 export class NotFoundError extends Error {
   status = 404;
@@ -25,6 +26,21 @@ export class UnauthorizedError extends Error {
     this.name = 'UnauthorizedError';
   }
 }
+
+// Fingerprint of a cart and the address it ships to (spec 010): same items, quantities and
+// address → same hash. Sorted so item order doesn't matter; address fields trimmed and lowercased.
+export const computeCartHash = (items: { product: unknown; quantity: number }[], shippingAddress: IShippingAddress): string => {
+  const lines = items
+    .map((item) => {
+      const product = item.product as { _id?: unknown } | string;
+      return `${String(typeof product === 'object' && product?._id ? product._id : product)}:${item.quantity}`;
+    })
+    .sort();
+  const address = (['fullName', 'address', 'apartment', 'city', 'state', 'postalCode', 'country', 'phone'] as const).map((field) =>
+    String(shippingAddress[field] ?? '').trim().toLowerCase(),
+  );
+  return crypto.createHash('sha256').update(JSON.stringify({ lines, address })).digest('hex');
+};
 
 // Takes the user id and address rather than the request, so the agent's
 // place_order tool can wrap it directly (reconciliation.md Gap 1).
@@ -79,9 +95,40 @@ export const createCheckoutSession = async (userId: string, shippingAddress: ISh
     tax,
     shipping,
     total,
+    cartHash: computeCartHash(cart.items, shippingAddress),
+    ...(session.url ? { checkoutUrl: session.url } : {}),
   });
 
   return { sessionId: session.id, url: session.url };
+};
+
+// Stripe Checkout sessions live 24 h; reuse only well inside that window.
+const CHECKOUT_REUSE_WINDOW_MS = 23 * 60 * 60 * 1000;
+
+// The agent's checkout (spec 010): an open checkout for the same cart and address is reused,
+// so asking twice never creates a second Stripe session. The /checkout page keeps calling
+// createCheckoutSession directly.
+export const createOrReuseCheckoutSession = async (userId: string, shippingAddress: IShippingAddress) => {
+  const cart = await getCart(userId);
+  if (cart.itemsCount === 0) throw new Error('Cart is empty');
+  const { total } = computeOrderPricing(cart.subtotal);
+  const cartHash = computeCartHash(cart.items, shippingAddress);
+
+  const open = await PendingCheckout.findOne({
+    user: userId,
+    cartHash,
+    checkoutUrl: { $exists: true },
+    createdAt: { $gte: new Date(Date.now() - CHECKOUT_REUSE_WINDOW_MS) },
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+  if (open?.checkoutUrl) {
+    return { pendingCheckoutId: String(open._id), url: open.checkoutUrl, reused: true, itemsCount: cart.itemsCount, total };
+  }
+
+  const { sessionId, url } = await createCheckoutSession(userId, shippingAddress);
+  const created = await PendingCheckout.findOne({ stripeSessionId: sessionId }).select('_id').lean();
+  return { pendingCheckoutId: created ? String(created._id) : null, url, reused: false, itemsCount: cart.itemsCount, total };
 };
 
 export const handleStripeWebhook = async (rawBody: Buffer, sig: string | string[]) => {

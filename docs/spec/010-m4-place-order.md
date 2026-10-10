@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M4 — Write tools + confirmation gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -84,24 +84,24 @@ The address in the summary is the one that will be used, so an address injected 
 
 ## Tasks
 
-- [ ] `PendingCheckout`: `cartHash`, `checkoutUrl`; `createCheckoutSession` saves them
-- [ ] `createOrReuseCheckoutSession` + `cartHash`
-- [ ] `place_order` tool, address fallback, summary, audit log; prompt + `PROMPT_VERSION` 3; tool label
-- [ ] Frontend: Stripe links
-- [ ] Tests (below)
-- [ ] Update `phases.md` §0 and the spec index
+- [x] `PendingCheckout`: `cartHash`, `checkoutUrl`; `createCheckoutSession` saves them
+- [x] `createOrReuseCheckoutSession` + `computeCartHash`
+- [x] `place_order` tool, address fallback, summary, audit log; prompt + `PROMPT_VERSION` 3; tool label
+- [x] Frontend: Stripe links
+- [x] Tests (below)
+- [x] Update `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] `place_order` pauses with a summary listing items, the server total and the full address that will be used — graph and tool tests
-- [ ] On confirm it returns a Stripe link; no `Order` exists until the webhook (unchanged path) — tool test with a mocked Stripe client
-- [ ] The same cart and address again → the same link with `reused: true` and no new Stripe session; a changed cart or address → a new session — MongoDB test
-- [ ] No address → the last order's address; none → the plain error; an invalid address → rejected by `shippingSchema` — tests
-- [ ] Empty cart → error, no Stripe call — test
-- [ ] No price, total or user field in the tool schema — existing schema test covers all tools
-- [ ] `/checkout` (REST) unchanged apart from saving the two new fields — existing tests pass
-- [ ] Frontend: a `checkout.stripe.com` link renders as an external link; other external links stay text — test
-- [ ] Backend lint 0 errors, build, tests with and without `MONGO_URL`; frontend tests, ESLint, Prettier, build
+- [x] `place_order` pauses with a summary listing items, the server total and the full address that will be used — the gate covers every confirm-required tool (spec 008 tests); summary tested in `tools.test.ts`
+- [x] On confirm it returns a Stripe link; no `Order` is created here (the webhook path is unchanged) — tool test
+- [x] The same cart and address again → the same link with `reused: true` and no new Stripe session; a changed cart or address → a new session; older than 23 h → new; another customer → never reused — `checkout-reuse.mongo.test.ts`
+- [x] No address → the last order's address; none → the plain error; an invalid address → rejected by `shippingSchema` — tests
+- [x] Empty cart → error, no Stripe call — tests (tool and MongoDB)
+- [x] No price, total or user field in the tool schema — the schema test walks all tools
+- [x] `/checkout` (REST) unchanged apart from saving the two new fields — existing tests pass; MongoDB test checks the saved fields
+- [x] Frontend: a `checkout.stripe.com` link opens in a new tab; a look-alike host stays text — test
+- [x] Backend lint 0 errors, build, `npm test` 121 + 14 skipped / 135 with `MONGO_URL`; frontend 54 tests, ESLint 0 errors, Prettier, build
 
 ## Test plan
 
@@ -112,14 +112,22 @@ The address in the summary is the one that will be used, so an address injected 
 
 ## Open questions
 
-1. **Address source:** use the last order's address when the customer doesn't give one (recommended; the confirmation shows it in full), or always ask the customer to state the address?
-2. **Duplicate guard scope:** agent only (recommended; no change to the `/checkout` page's behaviour), or also the `/checkout` page?
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the work is done._
+**2026-10-10** — backend in this repo; frontend `mern-frontend` `d5ff830`.
+- New tests: 7 `place_order` tool tests; `src/services/checkout-reuse.mongo.test.ts` (6, Stripe mocked); 1 frontend link test.
+- Example confirmation: *"Place an order for 3 items ($142.50) — Trail Runner ×2, Road Lite ×1 — shipping to Jane Doe, 1 Main St, Apt 4, Lahore, Punjab 54000, Pakistan? You'll pay by card on Stripe's secure page."*
+- Not yet run: a real Stripe test-mode checkout (needs a Stripe test key), alongside the parked real-model check.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved. Without an address from the customer, `place_order` uses the last order's address | The confirmation shows that address in full before anything happens |
+| 2026-10-10 | The duplicate-checkout guard applies to the agent only | No change to the `/checkout` page's behaviour |
+| 2026-10-10 | The cart fingerprint ignores item order and the address's case and surrounding spaces | "Lahore" and " lahore " are the same address; a reordered cart is the same cart |
+| 2026-10-10 | When the customer gives no address and the last order's address is incomplete, it isn't used (`shippingSchema` must pass) | Older orders can hold partial addresses ([`follow-ups.md`](../shopping-agent/follow-ups.md) §3); the customer is asked instead |
+| 2026-10-10 | The confirmation summary lists up to 5 items, then "and N more" | Keeps the card readable for big carts; the total covers everything |
+| 2026-10-10 | Only links starting with `https://checkout.stripe.com/` become links in the chat | A prefix check on the full origin plus path, so look-alike hosts (`checkout.stripe.com.evil.example`) stay text |

@@ -21,6 +21,7 @@ export const TOOL_LABELS: Record<string, string> = {
   add_to_cart: 'Adding to your cart…',
   update_cart_item: 'Updating your cart…',
   clear_cart: 'Clearing your cart…',
+  place_order: 'Starting checkout…',
 };
 
 // Nodes whose messages are the assistant speaking to the customer.

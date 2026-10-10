@@ -10,6 +10,7 @@ const services = vi.hoisted(() => ({
   clearCart: vi.fn(),
   getMyOrders: vi.fn(),
   getMyOrderById: vi.fn(),
+  createOrReuseCheckoutSession: vi.fn(),
   getUserById: vi.fn(),
   brandNames: [] as { _id: string; name: string }[],
   categoryNames: [] as { _id: string; name: string }[],
@@ -25,7 +26,11 @@ vi.mock('../../services/cart.service.js', () => ({
   updateCartItem: services.updateCartItem,
   clearCart: services.clearCart,
 }));
-vi.mock('../../services/order.service.js', () => ({ getMyOrders: services.getMyOrders, getMyOrderById: services.getMyOrderById }));
+vi.mock('../../services/order.service.js', () => ({
+  getMyOrders: services.getMyOrders,
+  getMyOrderById: services.getMyOrderById,
+  createOrReuseCheckoutSession: services.createOrReuseCheckoutSession,
+}));
 vi.mock('../../services/auth.service.js', () => ({ getUserById: services.getUserById }));
 // Name lookups: find({ name: { $in: [regex] } }).select().lean() against an in-memory list.
 const { nameModel } = vi.hoisted(() => ({
@@ -68,7 +73,7 @@ beforeEach(() => {
 describe('tool definitions', () => {
   const schemaOf = (t: { schema: unknown }) => z.toJSONSchema(t.schema as z.ZodType);
 
-  it('exposes the six read tools and three cart writes', () => {
+  it('exposes the six read tools and the write tools', () => {
     expect(buildToolsForRequest(A).map((t) => t.name)).toEqual([...AGENT_TOOL_NAMES]);
   });
 
@@ -89,7 +94,7 @@ describe('tool definitions', () => {
     expect(describeAll(A)).toEqual(describeAll(B));
   });
 
-  it('marks reads, writes, and only clear_cart as needing confirmation', () => {
+  it('marks reads, writes, and which writes need confirmation', () => {
     const metadata = Object.fromEntries(buildToolsForRequest(A).map((t) => [t.name, t.metadata]));
     for (const name of ['search_products', 'get_product_details', 'view_cart', 'view_orders', 'get_order_status', 'view_profile']) {
       expect(metadata[name]).toEqual({ kind: 'read', confirmRequired: false });
@@ -97,6 +102,7 @@ describe('tool definitions', () => {
     expect(metadata.add_to_cart).toEqual({ kind: 'write', confirmRequired: false });
     expect(metadata.update_cart_item).toEqual({ kind: 'write', confirmRequired: false });
     expect(metadata.clear_cart).toEqual({ kind: 'write', confirmRequired: true });
+    expect(metadata.place_order).toEqual({ kind: 'write', confirmRequired: true });
   });
 });
 
@@ -346,5 +352,69 @@ describe('cart writes', () => {
     services.getCart.mockResolvedValue({ items: [], itemsCount: 0, subtotal: 0 });
     expect(await summarizeConfirmation(A, { name: 'clear_cart', args: {} })).toBe('Your cart is already empty. Clear it anyway?');
     expect(services.clearCart).not.toHaveBeenCalled();
+  });
+});
+
+describe('place_order', () => {
+  const address = { fullName: 'Jane Doe', address: '1 Main St', apartment: 'Apt 4', city: 'Lahore', state: 'Punjab', postalCode: '54000', country: 'Pakistan' };
+  const lastOrder = { shippingAddress: { ...address, _id: 'addr' } };
+  const checkout = { pendingCheckoutId: 'pc1', url: 'https://checkout.stripe.com/c/pay/cs_test_1', reused: false, itemsCount: 3, total: 142.5 };
+  const cart = {
+    items: [
+      { product: { _id: PRODUCT_ID, name: 'Trail Runner', price: 45 }, quantity: 2 },
+      { product: { _id: 'p2', name: 'Road Lite', price: 52.5 }, quantity: 1 },
+    ],
+    itemsCount: 3,
+    subtotal: 142.5,
+  };
+
+  it('uses the address the customer gives and returns the Stripe link, never money from the model', async () => {
+    services.createOrReuseCheckoutSession.mockResolvedValue(checkout);
+    const out = await call(A, 'place_order', { shipping_address: address });
+    expect(services.createOrReuseCheckoutSession).toHaveBeenCalledWith(A.userId, address);
+    expect(services.getMyOrders).not.toHaveBeenCalled();
+    expect(out).toEqual({ checkoutUrl: checkout.url, itemsCount: 3, total: 142.5, reused: false });
+  });
+
+  it("falls back to the last order's address, without the stored _id", async () => {
+    services.getMyOrders.mockResolvedValue([lastOrder]);
+    services.createOrReuseCheckoutSession.mockResolvedValue({ ...checkout, reused: true });
+    expect((await call(B, 'place_order')).reused).toBe(true);
+    expect(services.createOrReuseCheckoutSession).toHaveBeenCalledWith(B.userId, address);
+  });
+
+  it('asks for an address when there is none, and creates nothing', async () => {
+    services.getMyOrders.mockResolvedValue([]);
+    expect(await call(A, 'place_order')).toEqual({ error: 'I need a shipping address: full name, street address, city, postal code and country.' });
+    expect(services.createOrReuseCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid address with the checkout form\'s schema', async () => {
+    await expect(toolNamed(A, 'place_order').invoke({ shipping_address: { ...address, postalCode: '1' } })).rejects.toThrow();
+    expect(services.createOrReuseCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('turns an empty cart into a plain error', async () => {
+    services.createOrReuseCheckoutSession.mockRejectedValue(new Error('Cart is empty'));
+    expect(await call(A, 'place_order', { shipping_address: address })).toEqual({ error: 'Your cart is empty.' });
+  });
+
+  it('summarizes items, the server total and the full address that will be used', async () => {
+    services.getCart.mockResolvedValue(cart);
+    services.getMyOrders.mockResolvedValue([lastOrder]);
+    expect(await summarizeConfirmation(A, { name: 'place_order', args: {} })).toBe(
+      "Place an order for 3 items ($142.50) — Trail Runner ×2, Road Lite ×1 — shipping to Jane Doe, 1 Main St, Apt 4, Lahore, Punjab 54000, Pakistan? You'll pay by card on Stripe's secure page.",
+    );
+    const given = await summarizeConfirmation(A, { name: 'place_order', args: { shipping_address: { ...address, city: 'Karachi', apartment: undefined } } });
+    expect(given).toContain('shipping to Jane Doe, 1 Main St, Karachi, Punjab 54000, Pakistan?');
+    expect(services.createOrReuseCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it('says so in the summary when the cart is empty or there is no address', async () => {
+    services.getCart.mockResolvedValue({ items: [], itemsCount: 0, subtotal: 0 });
+    expect(await summarizeConfirmation(A, { name: 'place_order', args: {} })).toMatch(/cart is empty/);
+    services.getCart.mockResolvedValue(cart);
+    services.getMyOrders.mockResolvedValue([]);
+    expect(await summarizeConfirmation(A, { name: 'place_order', args: {} })).toMatch(/no shipping address/);
   });
 });

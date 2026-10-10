@@ -36,3 +36,4 @@ Add a row when a spec is created; update its status as it moves.
 | 007 | [Chat panel](./007-m3-chat-panel.md) | M3 | Done | `mern-frontend` `d08968f` |
 | 008 | [Confirmation gate and cart writes](./008-m4-confirmation-gate-and-cart-writes.md) | M4 | Done | `f528bf6` |
 | 009 | [Confirm card](./009-m4-confirm-card.md) | M4 | Done | `mern-frontend` `daf99b4` + `7b26e98` |
+| 010 | [place_order](./010-m4-place-order.md) | M4 | Draft | — |

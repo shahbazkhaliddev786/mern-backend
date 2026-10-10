@@ -1,3 +1,4 @@
+import '../src/tracing.js';
 import { createApp } from '../src/app.js';
 import { connectDB } from '../src/services/db.service.js';
 import loaders from '../src/loaders/index.js';

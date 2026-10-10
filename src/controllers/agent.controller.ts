@@ -1,3 +1,4 @@
+import { trace } from '@opentelemetry/api';
 import type { Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
 import { runChatTurn, type ChatDeps } from '../agent/chat.service.js';
@@ -6,6 +7,7 @@ import { consumeBudgets, LimitStoreError, waitPhrase, type AgentBudget } from '.
 import { findSensitive } from '../agent/guard.js';
 import { formatSse } from '../agent/stream.js';
 import { createAvatarUpload, findOwnedUpload, formatSize } from '../services/upload.service.js';
+import { flushTraces } from '../tracing.js';
 import { apiResponse } from '../utils/api.response.js';
 import logger from '../utils/logger.js';
 
@@ -50,6 +52,7 @@ const limitRequests =
     try {
       const result = await consumeBudgets(userId, budgets);
       if (result.ok) return next();
+      trace.getActiveSpan()?.addEvent('agent.rate_limited', { budget: result.budget });
       res.setHeader('Retry-After', String(Math.ceil(result.msBeforeNext / 1000)));
       return apiResponse(res, 429, 'error', tooMany(waitPhrase(result.msBeforeNext)));
     } catch (error) {
@@ -83,6 +86,7 @@ export const createChatHandler =
     const sensitive = message ? findSensitive(message) : [];
     if (sensitive.length > 0) {
       logger.warn('AGENT_SENSITIVE_INPUT', { userId, kinds: sensitive });
+      trace.getActiveSpan()?.addEvent('agent.sensitive_input', { kinds: sensitive });
       return apiResponse(res, 400, 'error', SENSITIVE_MESSAGE);
     }
     if ('uploadId' in body && body.uploadId) {
@@ -116,6 +120,8 @@ export const createChatHandler =
       if (abort.signal.aborted) break;
       res.write(formatSse(event));
     }
+    // Spec 017: send the turn's spans before ending, since a Vercel function can be frozen after.
+    await flushTraces();
     res.end();
   };
 
@@ -125,5 +131,14 @@ export const uploadAvatarHandler = async (req: Request, res: Response): Promise<
   const userId = String((req as Request & { user: { _id: unknown } }).user._id);
   if (!req.file) return apiResponse(res, 400, 'error', 'Attach one image in the "profile" field');
   const upload = await createAvatarUpload(userId, req.file);
+  await flushTraces();
   apiResponse(res, 201, 'success', 'Image received', upload);
+};
+
+// Names the request's HTTP span after its route (spec 017): the Express instrumentation doesn't
+// patch Express 5 under ESM, so the span would otherwise just say "POST".
+export const nameTraceSpan: RequestHandler = (req, _res, next) => {
+  const route = `${req.baseUrl}${req.route?.path ?? ''}`;
+  trace.getActiveSpan()?.updateName(`${req.method} ${route}`).setAttribute('http.route', route);
+  next();
 };

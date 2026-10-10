@@ -2,6 +2,7 @@ import dns from 'dns';
 
 import util from 'util';
 import 'winston-mongodb';
+import { isSpanContextValid, trace } from '@opentelemetry/api';
 import { createLogger, format, transports } from 'winston';
 import type { MongoDBTransportInstance } from 'winston-mongodb';
 import config from '../config/config.js';
@@ -134,9 +135,23 @@ const mongoTransport = (): MongoDBTransportInstance[] => {
 };
 
 // --------------------
+// Trace ids (spec 017): a line written during a traced request names its trace, so an alert or
+// audit line leads to the full request. Nothing is added when tracing is off.
+// --------------------
+export const withTraceIds = format((info) => {
+  const span = trace.getActiveSpan()?.spanContext();
+  if (span && isSpanContextValid(span)) {
+    info.traceId = span.traceId;
+    info.spanId = span.spanId;
+  }
+  return info;
+});
+
+// --------------------
 // Logger instance
 // --------------------
 const logger = createLogger({
+  format: withTraceIds(),
   defaultMeta: { meta: {} },
   transports: [...fileTransport(), ...mongoTransport(), ...consoleTransport()],
 });

@@ -76,7 +76,7 @@ flowchart TB
     INBOX["Human support inbox<br/>(POST /api/v1/support → Make.com)"]
 
     subgraph Ops["Observability & Evals"]
-        OTEL["OpenTelemetry — backbone<br/>OpenLLMetry auto-instrumentation<br/>gen_ai.* + app/DB spans, one trace ID"]
+        OTEL["OpenTelemetry — backbone<br/>agent spans + HTTP/MongoDB instrumentation<br/>gen_ai.* + app/DB spans, one trace ID"]
         LS["LangSmith<br/>LLM-native trajectories + online evals"]
         BACKEND["General backend (OTLP)<br/>Grafana/Tempo · Datadog"]
         DE["DeepEval-TS + Vitest<br/>CI eval gate"]
@@ -154,7 +154,7 @@ The source documents and their editing rules are in `mern-backend/knowledge/READ
 6. Result returns to the agent → grounded response **streamed to React via SSE**.
 7. On confirm, `place_order` calls the same `createCheckoutSession(userId, shippingAddress)` as the `/checkout` page. It snapshots the cart into a **`PendingCheckout`** (prices and totals computed server-side; expires after 24h) and creates a **Stripe Checkout session**. The agent returns the session's link, and the user pays on Stripe's hosted page — the agent never touches card data. **No order exists yet.** Stripe's **signed webhook** (`checkout.session.completed`) then creates the `Order` as `status: 'pending'`, `paymentStatus: 'paid'`, keyed on the Stripe session id so a redelivered event can't create a second order. An abandoned checkout leaves no order behind; its `PendingCheckout` simply expires. This is payment-first, the flow the site already uses ([`reconciliation.md`](./reconciliation.md) Gap 1).
 8. **Escalation:** if the agent is stuck — loop detection (same tool + args repeated), step budget exceeded, or repeated tool errors — the turn is retried once on the **Opus 5.5 escalation node** with the same tools and the same confirmation gate. Opus can't read Sonnet's earlier reasoning blocks; the API drops them unbilled and Opus re-plans the turn from the visible history. If Opus can't resolve it either, the agent offers `submit_support_request` (human handoff).
-9. Every step emits **OpenTelemetry** spans (via OpenLLMetry) correlated under one trace ID → **LangSmith** (LLM-native view) + a general OTLP backend; the whole path is gated in CI by **DeepEval**. Full detail in [`observability.md`](./observability.md).
+9. Every step emits **OpenTelemetry** spans (the agent's own, plus HTTP and MongoDB instrumentation; spec 017) correlated under one trace ID → **LangSmith** (LLM-native view) + a general OTLP backend; the whole path is gated in CI by **DeepEval**. Full detail in [`observability.md`](./observability.md).
 
 ---
 
@@ -225,7 +225,7 @@ Before payment, a checkout is a `PendingCheckout`, not an order: there are no un
 | Write safety | **`interrupt()` + checkout reuse** | Confirm irreversible / bulk / account / external actions; reversible cart edits auto-execute to avoid confirmation fatigue. No double checkouts: an open `PendingCheckout` for the same cart + address is reused, and the webhook is idempotent on the Stripe session id, so no double orders. | — |
 | Payment | **Payment-first: `PendingCheckout` + Stripe Checkout + webhook** | The same path as the site's `/checkout`, so UI and agent can't drift. The `PendingCheckout` (24h TTL) is the trackable pre-order; the `Order` exists only once Stripe confirms payment, so there are no abandoned unpaid orders; payment state comes only from the signed webhook, never the agent. | — |
 | Auth | **server-side token + per-tool authz** | LLM can be jailbroken; authz enforced in DB, never in prompt. Payment/login/password stay out of the agent. | — |
-| Tracing backbone | **OpenTelemetry** (+ OpenLLMetry) | Vendor-neutral `gen_ai.*` spans; correlates LLM + Mongo + HTTP in one trace; no lock-in. OpenLLMetry = OTel auto-instrumentation, not a competitor. | OTel GenAI semantic conventions |
+| Tracing backbone | **OpenTelemetry** | Vendor-neutral `gen_ai.*` spans; correlates LLM + Mongo + HTTP in one trace; no lock-in. The agent creates its own model and tool spans; OpenLLMetry was tried and dropped (spec 017). | OTel GenAI semantic conventions |
 | Observability | **LangSmith** | LLM-native trajectory view + online evals; ingests OTLP. | — |
 | Evals | **DeepEval-TS + Vitest** | Named metrics (faithfulness, contextual precision/recall, tool-correctness) as CI gate. Beta — fallback LangSmith evals. | industry: LLM-judge evals (Shopify) |
 

@@ -109,9 +109,9 @@ Full catalog with schemas/notes: [`architecture.md`](./architecture.md) §4.
 
 | Tech | Package | Role | Why |
 |---|---|---|---|
-| **OpenTelemetry** | `@opentelemetry/sdk-node`, `@opentelemetry/api` | Tracing backbone; `gen_ai.*` spans | Correlate LLM + Mongo + HTTP in one trace; no vendor lock-in |
-| OpenLLMetry | `@traceloop/node-server-sdk` | OTel auto-instrumentation for LLM/vector/framework | Emit OTel LLM spans without hand-instrumenting; **extends OTel, not a competitor** |
-| LangSmith | `langsmith` | LLM-native trajectory view + online evals | Richest agent trace UX; ingests OTLP |
+| **OpenTelemetry** | `@opentelemetry/sdk-node`, `@opentelemetry/api`, `instrumentation-http`, `instrumentation-mongodb` | Tracing backbone: HTTP and MongoDB spans from the instrumentations; `agent.turn`, model-call (`gen_ai.*`, tokens, cache rate) and per-tool spans from the agent's own code | Correlate LLM + Mongo + HTTP in one trace; no vendor lock-in. Built in spec 017 |
+| ~~OpenLLMetry~~ | ~~`@traceloop/node-server-sdk`~~ | Removed (spec 017) | Its LangChain instrumentation gave a flat trace (every span directly under the request, tools unnamed, queries not under their tool). The agent's own spans nest correctly and carry no message text |
+| LangSmith | `langsmith` | LLM-native trajectory view + online evals | Gets LangChain's own runs (prompts and steps) **and** the request traces over OTLP, linked by `otel_trace_id` in the run metadata. Its OpenTelemetry mode wasn't used: it only covers its own `traceable()` wrapper, not LangGraph |
 | General backend | Grafana/Tempo · Datadog (OTLP) | Full-stack metrics/traces | Vendor-neutral target |
 
 ---

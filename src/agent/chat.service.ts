@@ -1,17 +1,19 @@
 // Runs one chat turn and yields SSE events (spec 006).
 
 import crypto from 'node:crypto';
+import { context, trace, type Context } from '@opentelemetry/api';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { HumanMessage } from '@langchain/core/messages';
+import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { Command } from '@langchain/langgraph';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import logger from '../utils/logger.js';
 import { claimConfirmation, createCheckpointer } from './checkpointer.js';
 import { PROMPT_VERSION, type AgentConfig } from './config.js';
+import { GIVE_UP_REPLY, REFUSAL_REPLY } from './prompt.js';
 import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMIT } from './graph.js';
 import { consumeBudgets } from './limits.js';
 import { StreamRedactor } from './guard.js';
-import { toAgentEvents, toolStartEvent, type AgentEvent } from './stream.js';
+import { toAgentEvents, toolStartEvent, visibleText, type AgentEvent } from './stream.js';
 import { buildToolsForRequest, summarizeConfirmation } from './tools/index.js';
 
 export interface ChatDeps {
@@ -71,9 +73,56 @@ async function allowEscalation(userId: string): Promise<boolean> {
   }
 }
 
+const tracer = trace.getTracer('aljo-agent');
+
+type AgentGraph = ReturnType<typeof buildAgentGraph>;
+/** What the inner turn hands back for the turn's span. */
+interface TurnRecord {
+  graph?: AgentGraph;
+  thread?: string;
+  threadId?: string;
+}
+
+/**
+ * One chat turn as SSE events, inside an `agent.turn` span (spec 017). The span carries ids and
+ * counts from observability.md's minimum trace schema, never message text.
+ */
 export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps): AsyncGenerator<AgentEvent> {
+  const span = tracer.startSpan('agent.turn', {
+    attributes: { 'agent.user': hash(turn.userId), 'agent.prompt_version': PROMPT_VERSION, 'agent.kind': turn.resume ? 'resume' : 'message' },
+  });
+  const turnContext = trace.setSpan(context.active(), span);
+  const record: TurnRecord = {};
+  let outcome = 'answered';
+  let toolsRun = 0;
+  try {
+    for await (const event of runTurn(turn, deps, turnContext, record)) {
+      if (event.event === 'confirm_required') outcome = 'confirm_required';
+      else if (event.event === 'error') outcome = 'error';
+      else if (event.event === 'tool_end') toolsRun += 1;
+      yield event;
+    }
+    if (turn.signal?.aborted) outcome = 'aborted';
+  } finally {
+    const state = record.graph && record.thread ? (await record.graph.getState({ configurable: { thread_id: record.thread } })).values : undefined;
+    const lastText = visibleText((state?.messages as BaseMessage[] | undefined)?.at(-1)?.content ?? '');
+    if (outcome === 'answered' && lastText === GIVE_UP_REPLY) outcome = 'gave_up';
+    if (outcome === 'answered' && lastText === REFUSAL_REPLY) outcome = 'refused';
+    span.setAttributes({
+      'agent.thread': record.threadId ?? '',
+      'agent.outcome': outcome,
+      'agent.tool_calls': toolsRun,
+      'agent.escalated': state?.escalated === true,
+      ...(state?.escalationReason ? { 'agent.escalation_reason': String(state.escalationReason) } : {}),
+    });
+    span.end();
+  }
+}
+
+async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, record: TurnRecord): AsyncGenerator<AgentEvent> {
   const threadId = turn.threadId ?? crypto.randomUUID();
   const thread = checkpointThreadId(turn.userId, threadId);
+  Object.assign(record, { thread, threadId });
   const redactor = new StreamRedactor();
   function* flushText(): Generator<AgentEvent> {
     const text = redactor.flush();
@@ -95,6 +144,7 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
         ? { escalation: { model: deps.createEscalationModel(turn.config), allow: () => allowEscalation(turn.userId) } }
         : {}),
     });
+    record.graph = graph;
 
     const pending = (await graph.getState({ configurable: { thread_id: thread } })).tasks.flatMap((task) => task.interrupts ?? []);
 
@@ -129,17 +179,24 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
       input = { messages: [new HumanMessage(turn.message ?? '')], toolCalls: 0, escalated: false, turnCalls: [], confirmedCalls: [] };
     }
 
-    const stream = await graph.stream(
-      input,
-      {
+    // The trace id goes into LangSmith's run metadata, linking its view of the turn to the trace.
+    const traceId = trace.getSpan(turnContext)?.spanContext().traceId;
+    // Run inside the turn's span, so model, tool and database spans nest under it. The context is
+    // set for each step, since a generator's caller doesn't carry it across yields.
+    const stream = await context.with(turnContext, () =>
+      graph.stream(input, {
         configurable: { thread_id: thread },
         streamMode: ['updates', 'messages'],
         recursionLimit: RECURSION_LIMIT,
         ...(turn.signal ? { signal: turn.signal } : {}),
-        metadata: { user: hash(turn.userId), threadId },
-      },
+        metadata: { user: hash(turn.userId), threadId, ...(traceId && trace.getSpan(turnContext)?.isRecording() ? { otel_trace_id: traceId } : {}) },
+      }),
     );
-    for await (const chunk of stream) {
+    const chunks = stream[Symbol.asyncIterator]();
+    for (;;) {
+      const next = await context.with(turnContext, () => chunks.next());
+      if (next.done) break;
+      const chunk = next.value;
       for (const event of toAgentEvents(chunk as [string, unknown], { confirmRequired })) {
         // Spec 016: text is redacted on its way out. The held-back tail is released before any
         // other event, so the order of text and status chips is unchanged.

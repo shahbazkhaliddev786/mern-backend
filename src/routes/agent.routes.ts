@@ -10,6 +10,7 @@ import {
   agentUploadLimit,
   chatRequestSchema,
   createChatHandler,
+  nameTraceSpan,
   uploadAvatarHandler,
 } from '../controllers/agent.controller.js';
 import { uploadSingleFile } from '../middlewares/multer.middleware.js';
@@ -25,9 +26,9 @@ export const createAgentRouter = ({
 }: { deps?: ChatDeps; auth?: RequestHandler; streamProbeEnabled?: boolean } = {}) => {
   const router = Router();
   // Per-user limits (spec 014): after auth, and before anything costly runs.
-  router.post('/chat', agentAvailable, auth, validateBody(chatRequestSchema), agentTurnLimit, createChatHandler(deps));
+  router.post('/chat', nameTraceSpan, agentAvailable, auth, validateBody(chatRequestSchema), agentTurnLimit, createChatHandler(deps));
   // Same limits and messages as the Edit Profile upload: one JPEG/PNG/GIF/WEBP, up to 2 MB (spec 012).
-  router.post('/uploads/avatar', agentAvailable, auth, agentUploadLimit, uploadSingleFile, uploadAvatarHandler);
+  router.post('/uploads/avatar', nameTraceSpan, agentAvailable, auth, agentUploadLimit, uploadSingleFile, uploadAvatarHandler);
   // TEMPORARY (spec 004): only exists when switched on; removed when the spec closes.
   if (streamProbeEnabled) router.post('/_stream-probe', streamProbe);
   return router;

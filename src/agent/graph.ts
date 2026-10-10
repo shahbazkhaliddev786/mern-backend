@@ -13,6 +13,7 @@ import { ToolNode } from '@langchain/langgraph/prebuilt';
 import logger from '../utils/logger.js';
 import { AGENT_EFFORT, AGENT_MODELS, STEP_BUDGET, type AgentConfig } from './config.js';
 import crypto from 'node:crypto';
+import { trace, type Span } from '@opentelemetry/api';
 import { raiseAlert } from './alerts.js';
 import { findSensitive, redact } from './guard.js';
 import { GIVE_UP_REPLY, REFUSAL_REPLY, SENSITIVE_REPLY, SYSTEM_PROMPT } from './prompt.js';
@@ -29,7 +30,37 @@ export const AgentState = Annotation.Root({
   // Spec 016: tool-call ids the customer approved at the gate. The tools node runs a
   // confirm-required call only if its id is here — a second check behind the gate.
   confirmedCalls: Annotation<string[]>({ reducer: (_previous, next) => next, default: () => [] }),
+  // Spec 017: why this turn escalated, for its trace.
+  escalationReason: Annotation<StuckReason | null>({ reducer: (_previous, next) => next, default: () => null }),
 });
+
+// Spec 017: the agent's own spans (model calls, tools). A no-op unless tracing is on.
+const tracer = trace.getTracer('aljo-agent');
+
+interface Usage {
+  input_tokens?: number;
+  output_tokens?: number;
+  input_token_details?: { cache_read?: number; cache_creation?: number };
+}
+
+/** Token counts and the prompt-cache hit rate. `input_tokens` already includes cached tokens. */
+export function usageOf(message: BaseMessage): Record<string, number> | null {
+  const usage = (message as { usage_metadata?: Usage }).usage_metadata;
+  if (!usage?.input_tokens) return null;
+  const cacheRead = usage.input_token_details?.cache_read ?? 0;
+  return {
+    input: usage.input_tokens,
+    output: usage.output_tokens ?? 0,
+    cacheRead,
+    cacheCreation: usage.input_token_details?.cache_creation ?? 0,
+    cacheHitRate: Number((cacheRead / usage.input_tokens).toFixed(4)),
+  };
+}
+
+const endSpan = (span: Span, attributes: Record<string, string | number | boolean>) => {
+  span.setAttributes(attributes);
+  span.end();
+};
 type State = typeof AgentState.State;
 
 // Spec 001: thinking and effort set explicitly; thinking text isn't shown to customers.
@@ -153,7 +184,36 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
 
   const agent = async (state: State, config: LangGraphRunnableConfig) => {
     const chat = state.escalated && escalationWithTools ? escalationWithTools : modelWithTools;
-    const response = await chat.invoke([systemMessage, ...state.messages]);
+    const role = state.escalated && escalationWithTools ? 'escalation' : 'agent';
+    const response = await tracer.startActiveSpan(`chat ${AGENT_MODELS[role]}`, async (span) => {
+      try {
+        const message = await chat.invoke([systemMessage, ...state.messages]);
+        const usage = usageOf(message);
+        if (usage) logger.info('AGENT_MODEL_USAGE', { thread: threadOf(config), model: AGENT_MODELS[role], effort: AGENT_EFFORT[role], ...usage });
+        const stopReason = (message.response_metadata as { stop_reason?: string } | undefined)?.stop_reason;
+        endSpan(span, {
+          'gen_ai.system': 'anthropic',
+          'gen_ai.request.model': AGENT_MODELS[role],
+          'agent.effort': AGENT_EFFORT[role],
+          'agent.tool_calls_requested': pendingToolCalls(message).length,
+          ...(stopReason ? { 'gen_ai.response.finish_reason': stopReason } : {}),
+          ...(usage
+            ? {
+                'gen_ai.usage.input_tokens': usage.input,
+                'gen_ai.usage.output_tokens': usage.output,
+                'agent.cache_read_tokens': usage.cacheRead,
+                'agent.cache_creation_tokens': usage.cacheCreation,
+                'agent.cache_hit_rate': usage.cacheHitRate,
+              }
+            : {}),
+        });
+        return message;
+      } catch (error) {
+        span.recordException(error as Error);
+        span.end();
+        throw error;
+      }
+    });
     const meta = response.response_metadata as { stop_reason?: string; stop_details?: { category?: string | null } } | undefined;
     if (meta?.stop_reason === 'refusal') {
       logger.warn('AGENT_REFUSAL', { userId, category: meta.stop_details?.category ?? null, escalated: state.escalated });
@@ -191,11 +251,27 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
       }
     }
     const allowed = calls.filter((call) => !refused.has(call.id ?? ''));
-    const ran = allowed.length
-      ? ((await toolNode.invoke({
-          messages: [...state.messages.slice(0, -1), new AIMessage({ content: last.content, tool_calls: allowed, ...(last.id ? { id: last.id } : {}) })],
-        })) as { messages: BaseMessage[] }).messages
-      : [];
+    // One ToolNode run per call, still in parallel, each in its own span (spec 017), so the
+    // database queries a tool makes sit under that tool in the trace.
+    const runOne = (call: ToolCall) =>
+      tracer.startActiveSpan(`tool ${call.name}`, async (span) => {
+        try {
+          const single = new AIMessage({ content: '', tool_calls: [call], ...(last.id ? { id: last.id } : {}) });
+          const { messages } = (await toolNode.invoke({ messages: [...state.messages.slice(0, -1), single] })) as { messages: BaseMessage[] };
+          endSpan(span, {
+            'gen_ai.tool.name': call.name,
+            'gen_ai.tool.call.id': call.id ?? '',
+            'agent.tool_ok': !messages.some((m) => isToolError(m.content)),
+            'agent.confirm_required': needsConfirmation(call),
+          });
+          return messages;
+        } catch (error) {
+          span.recordException(error as Error);
+          span.end();
+          throw error;
+        }
+      });
+    const ran = (await Promise.all(allowed.map(runOne))).flat();
     // A result carrying sensitive data is redacted before the model sees it.
     const checked = ran.map((message) => {
       const text = visibleText(message.content);
@@ -274,7 +350,7 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
     // Opus continues the turn from the visible history, with a fresh step budget and call record.
     return new Command({
       goto: 'agent',
-      update: { messages: answerPending(state, 'Not run: handing this over.'), escalated: true, toolCalls: 0, turnCalls: [] },
+      update: { messages: answerPending(state, 'Not run: handing this over.'), escalated: true, escalationReason: reason, toolCalls: 0, turnCalls: [] },
     });
   };
 

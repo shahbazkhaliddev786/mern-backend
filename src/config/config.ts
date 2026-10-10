@@ -29,6 +29,9 @@ export default {
     LANGSMITH_TRACING: process.env.LANGSMITH_TRACING || 'false',
     LANGSMITH_API_KEY: process.env.LANGSMITH_API_KEY || '',
     LANGSMITH_PROJECT: process.env.LANGSMITH_PROJECT || 'aljo-store-agent',
+    // Optional (spec 017): a general tracing backend. The exporter also reads the standard
+    // OTEL_EXPORTER_OTLP_HEADERS itself (e.g. an API key header).
+    OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '',
     // Optional (spec 016): urgent agent alerts are also POSTed here as { text } (Slack or Make.com)
     ALERT_WEBHOOK_URL: process.env.ALERT_WEBHOOK_URL || '',
     // TEMPORARY (spec 004): mounts POST /api/v1/agent/_stream-probe

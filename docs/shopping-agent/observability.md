@@ -26,7 +26,7 @@ The baseline. Don't skip it just because the LLM layer is shinier.
 Every call to Sonnet / Haiku is a span. Capture:
 
 - [ ] **Model + version** (`claude-sonnet-5-5` vs `claude-haiku-5-5` vs `claude-opus-5-5` escalation) — which tier served this, and the **effort level** sent
-- [ ] **Tokens**: input / output / **cache-read / cache-creation** — cache hit-rate is a direct cost lever
+- [x] **Tokens**: input / output / **cache-read / cache-creation** — cache hit-rate is a direct cost lever. *Built (spec 017):* on each model-call span and in an `AGENT_MODEL_USAGE` log line, with `cacheHitRate`
 - [ ] **Cost per call** and **cost per conversation** (tokens × price)
 - [ ] **Latency** + **TTFT** (time-to-first-token) — streaming UX health
 - [ ] **`stop_reason`** — `end_turn` vs `max_tokens` (truncation!) vs `tool_use` vs **`refusal`**
@@ -47,7 +47,7 @@ This is what makes it an *agent*. Observe the **path**, not just endpoints.
 - [ ] **Loop detection** — same tool + same args called N times = stuck agent
 - [ ] **Knowledge question** — the self-contained question the agent passed to `ask_store_knowledge` (did it lose the user's meaning?). There is no separate query rewrite or intent router in v1 ([`reconciliation.md`](./reconciliation.md) Gap 3, spec 013)
 - [ ] **Tool-selection trace** — which tool the agent chose, and whether it was the *right* one for the intent
-- [ ] **Full trajectory tree** — user msg → agent → tool → result → agent → … → response (one trace, one correlation ID)
+- [x] **Full trajectory tree** — user msg → agent → tool → result → agent → … → response (one trace, one correlation ID). *Built (spec 017):* HTTP → `agent.turn` → model calls and tools → the tool's MongoDB queries; log lines carry the `traceId`
 - [ ] **HITL interrupts** — fired? approved/denied? **time-to-confirm**
 - [ ] **Turns-to-completion** — conversations that never resolve (user gave up)
 - [ ] **Opus escalation** — rate, **trigger reason** (loop / step budget / repeated tool error), whether Opus resolved the turn, and **cost of escalated turns**
@@ -133,6 +133,8 @@ Observability that leadership (and interviewers) care about:
 ---
 
 ## The tracing stack decision: OpenTelemetry vs OpenLLMetry vs LangSmith
+
+> **As built (spec 017):** OpenTelemetry is the backbone. The HTTP and MongoDB spans come from their instrumentations; the `agent.turn`, model-call and per-tool spans come from the agent's own code, so the tree nests properly (request → turn → model call / tool → the tool's queries). Spans carry ids, names, token counts and the cache hit rate, never message text; MongoDB spans keep the query's shape with every value masked. LangSmith gets LangChain's own runs (prompts and steps) plus the request traces over OTLP, linked by `otel_trace_id`; a general backend plugs in through `OTEL_EXPORTER_OTLP_*`. OpenLLMetry was tried and dropped: its LangChain instrumentation produced a flat trace. LangSmith's own OpenTelemetry mode doesn't cover LangGraph. The comparison below is the original reasoning.
 
 **These are not either/or — they compose into layers.**
 

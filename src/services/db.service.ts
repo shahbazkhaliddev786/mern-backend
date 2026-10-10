@@ -1,13 +1,14 @@
-import mongoose from "mongoose";
-import type { Connection } from "mongoose";
-import dns from "dns";
-import config from "../config/config.js";
+import mongoose from 'mongoose';
+import type { Connection } from 'mongoose';
+import dns from 'dns';
+import config from '../config/config.js';
+import logger from '../utils/logger.js';
 
 // Only set external DNS in local Windows development if needed
-if (process.platform === "win32" && config.ENV === "development" && !process.env.VERCEL) {
+if (process.platform === 'win32' && config.ENV === 'development' && !process.env.VERCEL) {
   try {
-    dns.setServers(["8.8.8.8", "1.1.1.1"]);
-  } catch (e) {
+    dns.setServers(['8.8.8.8', '1.1.1.1']);
+  } catch {
     // Ignore in restrictive environments
   }
 }
@@ -29,10 +30,10 @@ export async function connectDB(): Promise<Connection> {
     });
 
     cachedConnection = conn.connection;
-    console.log("MongoDB connected successfully");
+    logger.info('MongoDB connected successfully');
     return cachedConnection;
   } catch (err) {
-    console.error("MongoDB connection error:", err);
+    logger.error('MongoDB connection error', { error: err instanceof Error ? err.message : String(err) });
     throw err;
   }
 }

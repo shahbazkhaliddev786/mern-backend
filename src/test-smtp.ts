@@ -1,3 +1,4 @@
+/* eslint-disable no-console -- a manual command-line diagnostic: printing is its job */
 import config from './config/config.js';
 import nodemailer from 'nodemailer';
 

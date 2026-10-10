@@ -1,6 +1,7 @@
-import { createApp } from "../src/app.js";
-import { connectDB } from "../src/services/db.service.js";
-import loaders from "../src/loaders/index.js";
+import { createApp } from '../src/app.js';
+import { connectDB } from '../src/services/db.service.js';
+import loaders from '../src/loaders/index.js';
+import logger from '../src/utils/logger.js';
 
 const app = createApp();
 let isInitialized = false;
@@ -20,8 +21,8 @@ export default async function handler(req: any, res: any) {
       await connectDB();
       // Intercept root and vercel rewritten paths
       app.use((req, res, next) => {
-        if (req.path === "/" || req.path === "/api/index" || req.path === "/api/index.ts" || req.path === "") {
-          return res.status(200).json({ status: "success", message: "Welcome to the MERN eCommerce API! The backend is fully deployed and live on Vercel." });
+        if (req.path === '/' || req.path === '/api/index' || req.path === '/api/index.ts' || req.path === '') {
+          return res.status(200).json({ status: 'success', message: 'Welcome to the MERN eCommerce API! The backend is fully deployed and live on Vercel.' });
         }
         next();
       });
@@ -30,9 +31,9 @@ export default async function handler(req: any, res: any) {
     }
     return app(req, res);
   } catch (error: any) {
-    console.error("Vercel Serverless Crash:", error);
+    logger.error('Vercel serverless initialization failed', { error: error.message, stack: error.stack });
     res.status(500).json({ 
-      error: "Initialization failed", 
+      error: 'Initialization failed', 
       message: error.message,
       stack: error.stack 
     });

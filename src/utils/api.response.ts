@@ -1,7 +1,7 @@
-import type { Response } from "express";
+import type { Response } from 'express';
 
 export type ApiResponse<T = unknown> = {
-  status: "success" | "error";
+  status: 'success' | 'error';
   message: string;
   data?: T;
   meta?: Record<string, unknown>;
@@ -11,7 +11,7 @@ export type ApiResponse<T = unknown> = {
 export const apiResponse = <T>(
   res: Response,
   statusCode: number,
-  status: "success" | "error",
+  status: 'success' | 'error',
   message: string,
   data?: T,
   meta?: Record<string, unknown>

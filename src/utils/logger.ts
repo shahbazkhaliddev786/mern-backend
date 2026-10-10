@@ -1,15 +1,14 @@
-import dns from "dns";
+import dns from 'dns';
 
-import util from "util";
-import "winston-mongodb";
-import { createLogger, format, transports } from "winston";
-import type { MongoDBTransportInstance } from "winston-mongodb";
-import config from "../config/config.js";
-import { EApplicationEnvironment } from "../constants/application.js";
-import path from "path";
-import { red, blue, yellow, green, magenta } from "colorette";
-import * as sourceMapSupport from "source-map-support";
-import { fileURLToPath } from "url";
+import util from 'util';
+import 'winston-mongodb';
+import { createLogger, format, transports } from 'winston';
+import type { MongoDBTransportInstance } from 'winston-mongodb';
+import config from '../config/config.js';
+import path from 'path';
+import { red, blue, yellow, green, magenta } from 'colorette';
+import * as sourceMapSupport from 'source-map-support';
+import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,20 +23,22 @@ sourceMapSupport.install();
 try {
   const shouldForce = process.env.FORCE_NODE_DNS_SERVERS === 'true' || (process.platform === 'win32' && config.ENV === 'development')
   if (!process.env.VERCEL && shouldForce) {
-    dns.setServers(["8.8.8.8", "1.1.1.1"])
+    dns.setServers(['8.8.8.8', '1.1.1.1'])
   }
-} catch (e) {}
+} catch {
+  // Keep the default resolver if the servers can't be set.
+}
 
 // --------------------
 // Helper to color log levels
 // --------------------
 const colorizeLevel = (level: string) => {
   switch (level.toUpperCase()) {
-    case "ERROR":
+    case 'ERROR':
       return red(level);
-    case "INFO":
+    case 'INFO':
       return blue(level);
-    case "WARN":
+    case 'WARN':
       return yellow(level);
     default:
       return level;
@@ -63,7 +64,7 @@ const consoleLogFormat = format.printf((info) => {
 const consoleTransport = () => {
   return [
     new transports.Console({
-      level: "info",
+      level: 'info',
       format: format.combine(format.timestamp(), consoleLogFormat),
     }),
   ];
@@ -80,7 +81,7 @@ const fileLogFormat = format.printf(({ level, message, timestamp, ...meta }) => 
       logMeta[key] = {
         name: value.name,
         message: value.message,
-        trace: value.stack || "",
+        trace: value.stack || '',
       };
     } else {
       logMeta[key] = value;
@@ -101,13 +102,13 @@ const fileLogFormat = format.printf(({ level, message, timestamp, ...meta }) => 
 
 const fileTransport = () => {
   // Vercel has a read-only filesystem (except /tmp), so we cannot write to logs/
-  if (process.env.VERCEL || config.ENV === "production") {
+  if (process.env.VERCEL || config.ENV === 'production') {
     return [];
   }
   return [
     new transports.File({
-      filename: path.join(__dirname, "../../logs", `${config.ENV}.log`),
-      level: "info",
+      filename: path.join(__dirname, '../../logs', `${config.ENV}.log`),
+      level: 'info',
       format: format.combine(format.timestamp(), fileLogFormat),
     }),
   ];
@@ -122,10 +123,10 @@ const mongoTransport = (): MongoDBTransportInstance[] => {
   }
   return [
     new transports.MongoDB({
-      level: "info",
+      level: 'info',
       db: config.DATABASE_URL as string,
-      collection: "application-logs",
-      metaKey: "meta",
+      collection: 'application-logs',
+      metaKey: 'meta',
       expireAfterSeconds: 3600 * 24 * 30, // 30 days
       options: { useUnifiedTopology: true },
     }),

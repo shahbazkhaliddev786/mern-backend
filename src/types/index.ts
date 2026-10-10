@@ -15,7 +15,7 @@ export type {
     CreateProductBody,
     UpdateProductBody,
     ProductParams
-} from "./product.types.js"
+} from './product.types.js'
 
 export type {
     RegisterBody,

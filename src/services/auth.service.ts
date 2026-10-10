@@ -188,7 +188,7 @@ export const updateUserProfile = async (
       });
 
       user.profile = result.secure_url;
-    } catch (error: any) {
+    } catch {
       throw new Error('Failed to upload profile picture');
     }
   }

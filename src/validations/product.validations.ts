@@ -1,4 +1,4 @@
-import { body, param } from 'express-validator';
+import { body } from 'express-validator';
 
 // CREATE PRODUCT - All fields validated (images handled separately by multer)
 export const createProductValidation = [

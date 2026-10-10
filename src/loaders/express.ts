@@ -1,20 +1,19 @@
 import { corsMiddleware } from '../middlewares/cors.js'
-import express from "express";
-import type { Express } from "express";
-import helmetPkg from "helmet";
-import cookieParser from "cookie-parser";
+import express from 'express';
+import type { Express } from 'express';
+import helmetPkg from 'helmet';
+import cookieParser from 'cookie-parser';
 import session from 'express-session';
 import MongoStorePkg from 'connect-mongo';
-import mongoose from "mongoose";
-import config from "../config/config.js";
-import { handleStripeWebhook } from "../services/order.service.js";
-import logger from "../utils/logger.js";
+import mongoose from 'mongoose';
+import { handleStripeWebhook } from '../services/order.service.js';
+import logger from '../utils/logger.js';
 
 const helmet = helmetPkg as any;
 const MongoStore = MongoStorePkg as any;
 
 export default async function expressLoader(app: Express) {
-  app.set("trust proxy", 1);
+  app.set('trust proxy', 1);
 
 //   // Security practices implemented:
 //   // 1. Helmet to set various HTTP headers for security
@@ -40,7 +39,6 @@ orderRouter.get('/my-orders', authMiddleware, getMyOrdersController);
 orderRouter.get('/:orderId', authMiddleware, getOrder);
 */
 
-  // @ts-ignore - helmet typings mismatch with ESM NodeNext
   app.use(
     helmet({
       contentSecurityPolicy: false,
@@ -72,8 +70,8 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
 
 
   app.use(corsMiddleware);
-  app.use(express.json({ limit: "15kb" }));
-  app.use(express.urlencoded({ extended: true, limit: "15kb" }));
+  app.use(express.json({ limit: '15kb' }));
+  app.use(express.urlencoded({ extended: true, limit: '15kb' }));
   app.use(cookieParser());
   // === SESSION MIDDLEWARE FOR GUEST CART ===
   app.use(
@@ -81,7 +79,6 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
       secret: process.env.SESSION_SECRET || 'fallback-secret-change-in-production',
       resave: false,
       saveUninitialized: true,
-      // @ts-ignore - connect-mongo typings mismatch with ESM NodeNext
       store: MongoStore.create({
         client: mongoose.connection.getClient(),
       }),

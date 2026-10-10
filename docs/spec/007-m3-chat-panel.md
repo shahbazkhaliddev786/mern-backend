@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M3 — Chat UI ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | `mern-frontend` `d08968f` |
 | **Repo** | Code in `mern-frontend`; the spec lives here with the other agent docs |
 
 ## Goal
@@ -105,25 +105,25 @@ index.ts
 
 ## Tasks
 
-- [ ] `sse.ts` + tests
-- [ ] `agent-chat.service.ts` (stream, refresh-once, typed failures) + tests
-- [ ] `useAgentChat` + tests
-- [ ] Components; launcher in `PageLayout`; `VITE_AGENT_ENABLED` in `src/shared/config/env.ts` and `.env.example`
-- [ ] Component tests (below)
-- [ ] Manual check in the browser against the local backend with a scripted reply (no API key needed), and against the real model once a key exists
-- [ ] Update `phases.md` §0 and the spec index
+- [x] `sse.ts` + tests
+- [x] `agent-chat.service.ts` (stream, refresh-once, typed failures) + tests
+- [x] `useAgentChat` (tested through the panel tests)
+- [x] Components; launcher in `PageLayout`; `VITE_AGENT_ENABLED` in `src/shared/config/env.ts` and `.env.example`
+- [x] Component tests (below)
+- [x] Manual check in the browser against a scripted backend (see Results); against the real model once a key exists
+- [x] Update `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] SSE parsing handles events split across chunks, several events in one chunk, and comment lines — unit tests
-- [ ] A streamed turn shows the user message, the tool chip during `tool_start`…`tool_end`, the answer growing token by token, and stores `threadId` from `done` — component test with a mocked streaming `fetch`
-- [ ] The next message sends the stored `threadId`; **New chat** sends none — test
-- [ ] 503, 400, `error` (retryable and not), a dropped stream, and 401 → refresh → retry (and 401 → refresh fails → sign-in prompt) each show the message in the table above — tests
-- [ ] **Stop** aborts the request and keeps the partial answer — test
-- [ ] Assistant Markdown can't inject HTML or scripts; relative links render as router links; absolute links render as text — test
-- [ ] Guests see the sign-in prompt, not the chat; nothing renders when `VITE_AGENT_ENABLED` isn't `true` — tests
-- [ ] Reloading keeps the visible conversation for the same user; another user sees an empty panel — test
-- [ ] `npm run lint:eslint`, `npm run build` and `npm test` pass in `mern-frontend`; existing snapshot tests are updated only where `PageLayout` now renders the launcher
+- [x] SSE parsing handles events split across chunks, several events in one chunk, and comment lines — `sse.test.ts`
+- [x] A streamed turn shows the user message, the tool chip during `tool_start`…`tool_end`, the answer growing token by token, and stores `threadId` from `done` — `chat-panel.test.tsx`
+- [x] The next message sends the stored `threadId`; **New chat** sends none — test
+- [x] 503, 400, `error` (retryable and not), a dropped stream, and 401 → refresh → retry (and 401 → refresh fails → sign-in prompt) each show the message in the table above — `agent-chat.service.test.ts` + `chat-panel.test.tsx`
+- [x] **Stop** aborts the request and keeps the partial answer — test
+- [x] Assistant Markdown can't inject HTML or scripts; relative links render as router links; absolute links render as text — test (`<script>`, `<b>`, images, an external link)
+- [x] Guests see the sign-in prompt, not the chat; nothing renders when `VITE_AGENT_ENABLED` isn't `true` — tests
+- [x] Reloading keeps the visible conversation for the same user; another user sees an empty panel — test
+- [x] `npm run lint:eslint`, `npm run build` and `npm test` pass in `mern-frontend`; no snapshot changes were needed (the launcher renders nothing in tests unless the switch is on)
 
 ## Test plan
 
@@ -133,13 +133,27 @@ index.ts
 
 ## Open questions
 
-- **Conversation persistence:** keep the visible conversation in `localStorage` across reloads (recommended, last 50 messages per user), or start a new chat on every reload?
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the work is done._
+**2026-10-10** — `mern-frontend` commit `d08968f`.
+- Tests: 45 passed (24 existing + 21 new: `sse.test.ts` 3, `agent-chat.service.test.ts` 5, `chat-panel.test.tsx` 13). ESLint 0 errors (3 existing warnings), Prettier clean, `npm run build` passes.
+- **Browser check** (Chromium via Playwright): the real frontend (`vite`, `VITE_AGENT_ENABLED=true`) against a small fake backend that streams a scripted turn (`tool_start` → 1.2 s → `tool_end` → tokens → `done`), signed in with a stored token. No page errors on desktop (1280×800) or mobile (390×844). On mobile, tapping a product link opened the product page and closed the panel.
+
+| Desktop, answer streamed | Mobile, tool running |
+|---|---|
+| ![Desktop answer](./assets/007-desktop-answer.png) | ![Mobile tool running](./assets/007-mobile-tool-running.png) |
+
+Not yet seen: a turn against the real agent (needs the backend running with `ANTHROPIC_API_KEY`).
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved with the recommended default: the visible conversation persists across reloads in `localStorage` (last 50 messages, keyed by user id) | A reload shouldn't make an ongoing conversation vanish from screen while the server still remembers it |
+| 2026-10-10 | The confirm card and the avatar upload flow are not in this spec | Moved to M4 when the spec was written (see Scope) |
+| 2026-10-10 | The switch is read through `isAgentEnabled()` at render time, not a constant | Tests can turn it on and off with `vi.stubEnv` |
+| 2026-10-10 | The saved conversation is keyed by the user id from the auth state, or from the access token's payload after a reload (the auth state keeps only tokens) | Without it, a reload would have no key and the conversation couldn't be restored for the right user |
+| 2026-10-10 | A failed answer's **Try again** removes that question and answer, then sends the question again | Keeps one copy of the question on screen |
+| 2026-10-10 | The repo's husky hooks didn't run in this environment (not executable); ESLint, Prettier and the commit-message format were checked by hand instead | Same checks the hooks would run |

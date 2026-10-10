@@ -14,7 +14,7 @@ _As of 2026-10-10._
 |---|---|---|
 | **M1** — Spikes & foundations | Settle the two unknowns that decide how everything else is built | 🟡 In progress — binding chosen offline ([spec 001](../spec/001-m1-langchain-binding-check.md), live run pending); interrupt/resume across requests proven ([spec 002](../spec/002-m1-interrupt-resume-across-requests.md)); agent config and `agent:setup` done ([spec 003](../spec/003-m1-agent-config-and-checkpointer-setup.md)); Vercel streaming to do ([spec 004](../spec/004-m1-vercel-streaming-check.md)) |
 | **M2** — Agent core, read-only | A signed-in user can ask about products, cart, orders and profile through the API | 🟡 Code complete — read tools ([spec 005](../spec/005-m2-read-tools.md)) and graph + `POST /api/v1/agent/chat` ([spec 006](../spec/006-m2-agent-graph-and-chat-endpoint.md)); real-model check waits on the API key |
-| **M3** — Chat UI | The same, from a chat panel in the store, with a confirm card ready for M4 | ⬜ Not started |
+| **M3** — Chat UI | The same, from a chat panel in the store | ✅ Done — chat panel in `mern-frontend` ([spec 007](../spec/007-m3-chat-panel.md)); the confirm card and avatar upload moved to M4 |
 | **M4** — Write tools + confirmation gate | The agent changes the cart, checks out, updates the profile and contacts support, asking first where the rule says so | ⬜ Not started |
 | **M5** — Store knowledge (RAG) | `ask_store_knowledge` answers policy questions with citations | ⬜ Not started |
 | **M6** — Hardening | Opus escalation, per-user limits, full tracing | ⬜ Not started |

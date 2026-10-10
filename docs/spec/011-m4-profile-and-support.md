@@ -6,7 +6,7 @@
 | **Milestone** | M4 — Write tools + confirmation gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | `3d106d9` + `mern-frontend` `b6f62dd` |
 | **Repo** | `mern-backend`; one small change in `mern-frontend` (header name) |
 
 ## Goal

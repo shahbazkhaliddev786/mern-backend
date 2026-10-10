@@ -77,7 +77,9 @@ interface AdminUpdateOrderDetailsInput {
   shippingAddress?: Partial<{
     fullName: string;
     address: string;
+    apartment: string;
     city: string;
+    state: string;
     postalCode: string;
     country: string;
     phone: string;

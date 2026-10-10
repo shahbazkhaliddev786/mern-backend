@@ -36,7 +36,9 @@ const PendingCheckoutSchema: Schema = new Schema(
     shippingAddress: {
       fullName: { type: String, required: true },
       address: { type: String, required: true },
+      apartment: { type: String },
       city: { type: String, required: true },
+      state: { type: String },
       postalCode: { type: String },
       country: { type: String },
       phone: { type: String },

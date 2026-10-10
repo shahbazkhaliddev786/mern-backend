@@ -11,7 +11,9 @@ export interface IOrderItem {
 export interface IShippingAddress {
   fullName: string;
   address: string;
+  apartment?: string;
   city: string;
+  state?: string;
   postalCode: string;
   country: string;
   phone?: string;
@@ -96,7 +98,9 @@ const OrderSchema: Schema = new Schema(
     shippingAddress: {
       fullName: { type: String, required: true },
       address: { type: String, required: true },
+      apartment: { type: String },
       city: { type: String, required: true },
+      state: { type: String },
       postalCode: { type: String },
       country: { type: String },
       phone: { type: String },

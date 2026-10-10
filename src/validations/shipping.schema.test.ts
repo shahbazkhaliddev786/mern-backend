@@ -27,6 +27,11 @@ describe('shippingSchema', () => {
     }
   });
 
+  it('keeps the optional apartment and state fields', () => {
+    const parsed = shippingSchema.parse({ ...validAddress, apartment: 'Apt 4B', state: 'IL' });
+    expect(parsed).toMatchObject({ apartment: 'Apt 4B', state: 'IL' });
+  });
+
   it('strips unknown keys (tax/shipping cannot ride along)', () => {
     const parsed = shippingSchema.parse({ ...validAddress, tax: 999, shipping: 999 });
     expect(parsed).not.toHaveProperty('tax');

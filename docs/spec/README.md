@@ -40,3 +40,4 @@ Add a row when a spec is created; update its status as it moves.
 | 011 | [update_profile and submit_support_request](./011-m4-profile-and-support.md) | M4 | Done | `3d106d9` + `mern-frontend` `b6f62dd` |
 | 012 | [Avatar upload](./012-m4-avatar-upload.md) | M4 | Done | `8db0052` + `mern-frontend` `5514a92` |
 | 013 | [Store knowledge (`ask_store_knowledge`)](./013-m5-store-knowledge.md) | M5 | Done | `bed57d4` |
+| 014 | [Per-user limits](./014-m6-per-user-limits.md) | M6 | Draft | — |

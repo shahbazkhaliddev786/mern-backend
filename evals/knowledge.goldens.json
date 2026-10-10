@@ -1,0 +1,323 @@
+{
+  "_note": "Store-knowledge goldens (spec 013). Every expectedOutput restates mern-backend/knowledge/ only; never invent policy (evals.md §15). 'searchQuery' is the self-contained question a follow-up should become.",
+  "goldens": [
+    {
+      "id": "about-who",
+      "kind": "answer",
+      "input": "Who are you guys, what kind of store is this?",
+      "expectedOutput": "Aljo Store was established in 2020 and sells slow goods made with independent weavers, ceramicists and generational makers, in small batches, built to last rather than to follow trends.",
+      "expectedChunkIds": [
+        "about.md#who-is-aljo-store"
+      ]
+    },
+    {
+      "id": "about-materials",
+      "kind": "answer",
+      "input": "What are your products made from?",
+      "expectedOutput": "Natural materials with untreated finishes that age well, such as unbleached organic linen, heavy-drape cotton, vegetable-tanned hides and raw stoneware.",
+      "expectedChunkIds": [
+        "about.md#what-materials-do-you-use"
+      ]
+    },
+    {
+      "id": "about-made",
+      "kind": "answer",
+      "input": "Are your things mass produced?",
+      "expectedOutput": "No. They're made in modest, limited batches with independent workshops and generational craftspeople who use traditional techniques and are paid fair wages, and every piece is checked seam by seam before it leaves the workshop.",
+      "expectedChunkIds": [
+        "about.md#how-are-your-products-made"
+      ]
+    },
+    {
+      "id": "account-create",
+      "kind": "answer",
+      "input": "How do I sign up?",
+      "expectedOutput": "Choose Sign up and enter your name, email address and a password (a profile picture is optional). You're emailed a 6-digit code; entering it on the verification page activates the account. The code expires after 5 minutes and a new one can be requested there.",
+      "expectedChunkIds": [
+        "account.md#how-do-i-create-an-account"
+      ]
+    },
+    {
+      "id": "account-password-rules",
+      "kind": "answer",
+      "input": "What does my password need to have?",
+      "expectedOutput": "At least 6 characters, including an uppercase letter, a lowercase letter, a number and one of the symbols ! @ # $ % ^ & *.",
+      "expectedChunkIds": [
+        "account.md#what-are-the-password-rules"
+      ]
+    },
+    {
+      "id": "account-no-code",
+      "kind": "answer",
+      "input": "I never received my verification code",
+      "expectedOutput": "On the verification page shown after signing up, choose Resend to get a new code. Each code expires after 5 minutes and stops working after 5 wrong tries.",
+      "expectedChunkIds": [
+        "account.md#i-didnt-get-my-verification-code-what-can-i-do"
+      ]
+    },
+    {
+      "id": "account-forgot",
+      "kind": "answer",
+      "input": "I can't remember my password",
+      "expectedOutput": "On the sign-in page choose \"Forgot password?\" and enter your email address. If an account uses it, a 6-digit code is emailed; enter it with your new password within 5 minutes. Resetting signs you out on all your devices.",
+      "expectedChunkIds": [
+        "account.md#i-forgot-my-password-how-do-i-reset-it"
+      ]
+    },
+    {
+      "id": "account-change-password",
+      "kind": "answer",
+      "input": "How can I change my password?",
+      "expectedOutput": "Open your profile, choose Edit Profile and use the Change Password section; you need your current password. You stay signed in on the device you're using and your other devices are signed out.",
+      "expectedChunkIds": [
+        "account.md#how-do-i-change-my-password"
+      ]
+    },
+    {
+      "id": "account-change-email",
+      "kind": "answer",
+      "input": "I want to use a different email address on my account",
+      "expectedOutput": "Open your profile, choose Edit Profile and use the Change Email section. Enter the new address and your current password; a 6-digit code is emailed to the new address, and the email changes only once you enter that code within 5 minutes.",
+      "expectedChunkIds": [
+        "account.md#how-do-i-change-my-email-address"
+      ]
+    },
+    {
+      "id": "account-avatar-rules",
+      "kind": "answer",
+      "input": "What kind of picture can I use for my profile?",
+      "expectedOutput": "Profile pictures can be JPEG, PNG, GIF or WEBP images of up to 2 MB. You change them from Edit Profile on your profile.",
+      "expectedChunkIds": [
+        "account.md#how-do-i-change-my-name-or-profile-picture"
+      ]
+    },
+    {
+      "id": "contact-how",
+      "kind": "answer",
+      "input": "How do I get in touch with you?",
+      "expectedOutput": "Use the contact form on the Contact page, or email hello@aljostore.com. The team typically responds within one business day.",
+      "expectedChunkIds": [
+        "contact-and-support.md#how-can-i-contact-you"
+      ]
+    },
+    {
+      "id": "contact-hours",
+      "kind": "answer",
+      "input": "When is customer support open?",
+      "expectedOutput": "Monday to Friday, 9am to 6pm EST. The team typically responds within one business day.",
+      "expectedChunkIds": [
+        "contact-and-support.md#what-are-your-customer-support-hours"
+      ]
+    },
+    {
+      "id": "orders-guest",
+      "kind": "answer",
+      "input": "Can I check out without an account?",
+      "expectedOutput": "No. You can browse and add items to your cart without an account, but you need to sign in to check out. Anything already in your cart is kept when you sign in.",
+      "expectedChunkIds": [
+        "orders.md#do-i-need-an-account-to-order"
+      ]
+    },
+    {
+      "id": "orders-place",
+      "kind": "answer",
+      "input": "How do I buy something?",
+      "expectedOutput": "Add items to your cart, open the cart and choose \"Proceed to Checkout\", enter your shipping address, then choose \"Proceed to Payment\" to pay on Stripe's secure page. After paying you see a confirmation page and an order confirmation is emailed to you.",
+      "expectedChunkIds": [
+        "orders.md#how-do-i-place-an-order"
+      ]
+    },
+    {
+      "id": "orders-confirmation",
+      "kind": "answer",
+      "input": "Will you email me after I order?",
+      "expectedOutput": "Yes. Once payment goes through, an order confirmation is emailed to your account's email address with the order number, items, total and shipping address.",
+      "expectedChunkIds": [
+        "orders.md#will-i-get-an-order-confirmation"
+      ]
+    },
+    {
+      "id": "orders-status",
+      "kind": "answer",
+      "input": "Where can I see if my order has shipped?",
+      "expectedOutput": "Sign in and open My Orders (the Dashboard link in your account menu). Each order shows its status: pending, processing, shipped, delivered or cancelled.",
+      "expectedChunkIds": [
+        "orders.md#how-do-i-check-my-orders-status"
+      ]
+    },
+    {
+      "id": "orders-number",
+      "kind": "answer",
+      "input": "Where do I find my order number?",
+      "expectedOutput": "It's the 8-character code after the # sign, for example #1A2B3C4D. It appears on My Orders and in your confirmation email; mention it when you contact the store about an order.",
+      "expectedChunkIds": [
+        "orders.md#what-is-my-order-number"
+      ]
+    },
+    {
+      "id": "orders-payment-failed",
+      "kind": "answer",
+      "input": "My payment didn't go through, was I charged?",
+      "expectedOutput": "No order is created and you aren't charged. Your cart stays as it was, so you can try again from the cart.",
+      "expectedChunkIds": [
+        "orders.md#what-happens-if-my-payment-fails",
+        "payments.md#when-is-my-card-charged"
+      ]
+    },
+    {
+      "id": "payments-methods",
+      "kind": "answer",
+      "input": "Can I pay cash on delivery?",
+      "expectedOutput": "No. You pay by debit or credit card on Stripe's secure checkout page; cash on delivery isn't available.",
+      "expectedChunkIds": [
+        "payments.md#what-payment-methods-do-you-accept"
+      ]
+    },
+    {
+      "id": "payments-currency",
+      "kind": "answer",
+      "input": "Are your prices in dollars?",
+      "expectedOutput": "Yes, all prices are in US dollars (USD).",
+      "expectedChunkIds": [
+        "payments.md#what-currency-are-your-prices-in"
+      ]
+    },
+    {
+      "id": "payments-safe",
+      "kind": "answer",
+      "input": "Is it safe to put my card details in?",
+      "expectedOutput": "Yes. You enter your card on Stripe's secure checkout page, so Aljo Store never sees or stores your card number.",
+      "expectedChunkIds": [
+        "payments.md#is-it-safe-to-pay-on-your-site"
+      ]
+    },
+    {
+      "id": "payments-charged",
+      "kind": "answer",
+      "input": "When do you take the money?",
+      "expectedOutput": "When you complete payment on the Stripe page; the order is created only after Stripe confirms it. If you leave the payment page without paying, nothing is charged and your cart stays as it was.",
+      "expectedChunkIds": [
+        "payments.md#when-is-my-card-charged"
+      ]
+    },
+    {
+      "id": "payments-discount",
+      "kind": "answer",
+      "input": "Do you have promo codes?",
+      "expectedOutput": "Checkout doesn't take discount or promo codes.",
+      "expectedChunkIds": [
+        "payments.md#can-i-use-a-discount-code"
+      ]
+    },
+    {
+      "id": "returns-window",
+      "kind": "answer",
+      "input": "How many days do I have to send something back?",
+      "expectedOutput": "You can return any product within 30 days.",
+      "expectedChunkIds": [
+        "returns.md#how-long-do-i-have-to-return-something"
+      ]
+    },
+    {
+      "id": "shipping-cost",
+      "kind": "answer",
+      "input": "Do I have to pay for shipping?",
+      "expectedOutput": "No, shipping is free on every order; the checkout total is the sum of the item prices.",
+      "expectedChunkIds": [
+        "shipping.md#how-much-does-shipping-cost"
+      ]
+    },
+    {
+      "id": "shipping-tax",
+      "kind": "answer",
+      "input": "Is sales tax added at checkout?",
+      "expectedOutput": "No tax is added at checkout; you pay the item prices shown in your cart, and shipping is free.",
+      "expectedChunkIds": [
+        "shipping.md#do-you-charge-sales-tax"
+      ]
+    },
+    {
+      "id": "shipping-packaging",
+      "kind": "answer",
+      "input": "How do you package orders?",
+      "expectedOutput": "Orders arrive wrapped in unbleached recycled kraft paper and tied with natural compostable twine.",
+      "expectedChunkIds": [
+        "shipping.md#how-is-my-order-packaged"
+      ]
+    },
+    {
+      "id": "todo-delivery-time",
+      "kind": "fallback",
+      "input": "How long will delivery take?",
+      "expectedOutput": "The store hasn't published that. Contact Aljo Store from the Contact page (/contact) or at hello@aljostore.com, or ask the assistant to send the question to support.",
+      "expectedChunkIds": []
+    },
+    {
+      "id": "todo-tracking",
+      "kind": "fallback",
+      "input": "Can I get a tracking number for my order?",
+      "expectedOutput": "The store hasn't published that. Contact Aljo Store from the Contact page (/contact) or at hello@aljostore.com, or ask the assistant to send the question to support.",
+      "expectedChunkIds": []
+    },
+    {
+      "id": "todo-return-conditions",
+      "kind": "fallback",
+      "input": "Does an item have to be unused to return it?",
+      "expectedOutput": "The store hasn't published that. Contact Aljo Store from the Contact page (/contact) or at hello@aljostore.com, or ask the assistant to send the question to support.",
+      "expectedChunkIds": []
+    },
+    {
+      "id": "todo-refund-timing",
+      "kind": "fallback",
+      "input": "How long does a refund take to reach my card?",
+      "expectedOutput": "The store hasn't published that. Contact Aljo Store from the Contact page (/contact) or at hello@aljostore.com, or ask the assistant to send the question to support.",
+      "expectedChunkIds": []
+    },
+    {
+      "id": "todo-phone",
+      "kind": "fallback",
+      "input": "What's your phone number?",
+      "expectedOutput": "The store hasn't published that. Contact Aljo Store from the Contact page (/contact) or at hello@aljostore.com, or ask the assistant to send the question to support.",
+      "expectedChunkIds": []
+    },
+    {
+      "id": "follow-tax",
+      "kind": "follow-up",
+      "history": [
+        "Do I have to pay for shipping?"
+      ],
+      "input": "And what about tax?",
+      "searchQuery": "Do you charge sales tax?",
+      "expectedOutput": "No tax is added at checkout; you pay the item prices shown in your cart, and shipping is free.",
+      "expectedChunkIds": [
+        "shipping.md#do-you-charge-sales-tax"
+      ]
+    },
+    {
+      "id": "follow-email",
+      "kind": "follow-up",
+      "history": [
+        "How do I change my password?"
+      ],
+      "input": "And my email?",
+      "searchQuery": "How do I change my email address?",
+      "expectedOutput": "Open your profile, choose Edit Profile and use the Change Email section. Enter the new address and your current password; a 6-digit code is emailed to the new address, and the email changes only once you enter that code within 5 minutes.",
+      "expectedChunkIds": [
+        "account.md#how-do-i-change-my-email-address"
+      ]
+    },
+    {
+      "id": "follow-hours",
+      "kind": "follow-up",
+      "history": [
+        "How can I contact you?"
+      ],
+      "input": "When are you open?",
+      "searchQuery": "What are your customer support hours?",
+      "expectedOutput": "Monday to Friday, 9am to 6pm EST. The team typically responds within one business day.",
+      "expectedChunkIds": [
+        "contact-and-support.md#what-are-your-customer-support-hours"
+      ]
+    }
+  ]
+}

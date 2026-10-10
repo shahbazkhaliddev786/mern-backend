@@ -45,7 +45,7 @@ This is what makes it an *agent*. Observe the **path**, not just endpoints.
 
 - [ ] **Step count per turn** — how many tool calls to resolve one user request
 - [ ] **Loop detection** — same tool + same args called N times = stuck agent
-- [ ] **Query rewrite** (Haiku) — the standalone query sent to retrieval (did the rewrite lose the user's meaning?). There is no separate intent router in v1 ([`reconciliation.md`](./reconciliation.md) Gap 3)
+- [ ] **Knowledge question** — the self-contained question the agent passed to `ask_store_knowledge` (did it lose the user's meaning?). There is no separate query rewrite or intent router in v1 ([`reconciliation.md`](./reconciliation.md) Gap 3, spec 013)
 - [ ] **Tool-selection trace** — which tool the agent chose, and whether it was the *right* one for the intent
 - [ ] **Full trajectory tree** — user msg → agent → tool → result → agent → … → response (one trace, one correlation ID)
 - [ ] **HITL interrupts** — fired? approved/denied? **time-to-confirm**
@@ -61,7 +61,7 @@ This is what makes it an *agent*. Observe the **path**, not just endpoints.
 
 A grounded answer is only as good as what was retrieved. Instrument the pipeline:
 
-- [ ] **Rewritten query** (post history-aware rewrite) — bad rewrite = bad retrieval
+- [ ] **Search question** (the tool's `question` argument) — a bad question = bad retrieval
 - [ ] **Retrieved chunk IDs + scores** (hybrid: vector + BM25) — what did it actually pull?
 - [ ] **Rerank scores** (Voyage rerank-2.5) before vs after — is rerank reordering meaningfully?
 - [ ] **Empty / low-confidence retrieval rate** — questions the KB can't answer (content gaps!)

@@ -16,7 +16,7 @@ _As of 2026-10-10._
 | **M2** — Agent core, read-only | A signed-in user can ask about products, cart, orders and profile through the API | 🟡 Code complete — read tools ([spec 005](../spec/005-m2-read-tools.md)) and graph + `POST /api/v1/agent/chat` ([spec 006](../spec/006-m2-agent-graph-and-chat-endpoint.md)); real-model check waits on the API key |
 | **M3** — Chat UI | The same, from a chat panel in the store | ✅ Done — chat panel in `mern-frontend` ([spec 007](../spec/007-m3-chat-panel.md)); the confirm card and avatar upload moved to M4 |
 | **M4** — Write tools + confirmation gate | The agent changes the cart, checks out, updates the profile and contacts support, asking first where the rule says so | 🟡 Code complete — gate, resume and cart writes ([spec 008](../spec/008-m4-confirmation-gate-and-cart-writes.md)), the confirm card ([spec 009](../spec/009-m4-confirm-card.md)), `place_order` ([spec 010](../spec/010-m4-place-order.md)), profile + support ([spec 011](../spec/011-m4-profile-and-support.md)), avatar upload ([spec 012](../spec/012-m4-avatar-upload.md)). `cancel_order` deferred until the store has a `cancelOrder` service (scope step 5). The browser exit check waits on the API key |
-| **M5** — Store knowledge (RAG) | `ask_store_knowledge` answers policy questions with citations | ⬜ Not started |
+| **M5** — Store knowledge (RAG) | `ask_store_knowledge` answers policy questions with citations | 🟡 Code complete — ingestion, Atlas indexes, hybrid retrieval and the tool ([spec 013](../spec/013-m5-store-knowledge.md)); the LLM-judged eval run waits on the API keys |
 | **M6** — Hardening | Opus escalation, per-user limits, full tracing | ⬜ Not started |
 | **M7** — Evals & launch gate | The CI gate from [`evals.md`](./evals.md), and the go/no-go for production | ⬜ Not started |
 
@@ -155,7 +155,7 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 **Scope**
 - **Ingestion script** (`src/agent/rag/ingest.ts`, run on doc change): one `##` question = one chunk, skip `TODO(owner)` chunks, strip HTML comments, prefix the file title, add a one-line Claude context per chunk, embed with `voyage-3.5`, upsert into Mongo.
 - **Atlas indexes:** a vector index and an Atlas Search (BM25) index on the knowledge collection — created once, documented in this folder.
-- **Retrieval:** Haiku 5.5 history-aware query rewrite (falls back to the raw query on refusal) → hybrid search, top 20 → `rerank-2.5`, top 4 → grounded answer with chunk citations; empty or low-score retrieval → "I don't have that — here's how to contact us".
+- **Retrieval:** the agent passes a self-contained question (no separate rewrite step — spec 013) → hybrid search, top 20 → `rerank-2.5`, top 4 → grounded answer naming its topic; empty or low-score retrieval → "I don't have that — here's how to contact us".
 - **Tests:** retrieval and faithfulness goldens taken from the knowledge files themselves (never invented policy — [`evals.md`](./evals.md) §15).
 
 **Exit criteria:** contextual recall ≥ 0.8, precision ≥ 0.7, faithfulness ≥ 0.9 on the knowledge goldens; unanswered (`TODO(owner)`) topics fall back to contact options.

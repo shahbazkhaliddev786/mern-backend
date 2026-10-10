@@ -31,7 +31,7 @@
 | LangGraph.js | `@langchain/langgraph`, `@langchain/core` | Agent graph (nodes, edges, state) | Single agent + tools; native `interrupt()` HITL; checkpointer |
 | Claude binding | `@langchain/anthropic`, `@anthropic-ai/sdk` | LLM calls | Official SDK |
 | **Agent model** | **Claude Sonnet 5.5** (`claude-sonnet-5-5`) | Reasoning + tool selection (routes via native tool use) | Best tool-use/cost balance; 1M ctx; adaptive thinking |
-| **Query-rewrite model** | **Claude Haiku 5.5** (`claude-haiku-5-5`) | History-aware rewrite for `ask_store_knowledge` | Cheap and fast. No separate intent router until evals justify one ([`reconciliation.md`](./reconciliation.md) Gap 3) |
+| **Knowledge context model** | **Claude Haiku 5.5** (`claude-haiku-5-5`) | The one-line context per knowledge chunk, at ingestion | Cheap and offline. No query rewrite at request time (spec 013), and no separate intent router until evals justify one ([`reconciliation.md`](./reconciliation.md) Gap 3) |
 | **Escalation model** | **Claude Opus 5.5** (`claude-opus-5-5`) | Retry stuck turns (loop, step budget, repeated tool error) | Higher success on the hard tail; invoked rarely so cost stays bounded |
 | HITL gate | LangGraph `interrupt()` | Confirm before irreversible / bulk / account / external writes | Those actions need explicit user yes; reversible cart edits skip it |
 
@@ -40,7 +40,7 @@
 - **No forced tool calls.** `tool_choice` `any` / `tool` returns a 400 on Sonnet 5.5 and Opus 5.5. Use `tool_choice: auto` with `strict: true` tool schemas, steer in the prompt, and check in code that a required call happened. Nothing safety-critical relies on forcing anyway: confirmation is enforced by `interrupt()` on the server.
 - **History is append-only.** Thinking blocks are bound to the conversation that produced them: editing, trimming or reordering earlier turns, or rebuilding the system prompt or tool list between requests, invalidates them (a 400 for newly created accounts). So the system prompt and tool definitions are static, per-request facts arrive as messages or tool results, thinking blocks are passed back unchanged, and long conversations use server-side compaction instead of trimming. LangGraph's message state is append-only by default; don't add a `trimMessages` step.
 - **Model switches drop reasoning.** On escalation, Opus 5.5 can't read Sonnet 5.5's thinking blocks; the API drops them unbilled and Opus re-plans from the visible history (more cost and latency on that turn). Pass the blocks back unchanged rather than stripping them.
-- **Refusals are a stop reason.** Safety classifiers can end a turn with `stop_reason: 'refusal'` (category in `stop_details`). Check it before reading `content`, reply with a safe message plus the support option, and log the category. Server-side fallback retries only some categories on Sonnet 5.5, and Haiku 5.5 has none, so the query rewrite falls back to the raw user query.
+- **Refusals are a stop reason.** Safety classifiers can end a turn with `stop_reason: 'refusal'` (category in `stop_details`). Check it before reading `content`, reply with a safe message plus the support option, and log the category. Server-side fallback retries only some categories on Sonnet 5.5, and Haiku 5.5 has none, so a refused chunk-context line at ingestion is simply left out.
 - **Binding check (M1 spike) — done offline 2026-10-10, live run pending ([spec 001](../spec/001-m1-langchain-binding-check.md)):** the agent node uses `ChatAnthropic` from `@langchain/anthropic` 1.5.12. It sends `thinking` and `outputConfig.effort` as first-class options, `strict` tools through `bindTools(..., { strict: true })`, keeps mid-conversation `SystemMessage`s in place, round-trips thinking blocks unchanged, and exposes `stop_reason` / `stop_details` in `response_metadata`. Refusal `fallbacks` have no first-class option and go through `invocationKwargs`. Don't use default-method `withStructuredOutput`; use `outputConfig.format` for JSON output.
 
 ---
@@ -66,7 +66,7 @@ Full catalog with schemas/notes: [`architecture.md`](./architecture.md) §4.
 | Tech | Package / Model | Role | Why |
 |---|---|---|---|
 | **Product search** | MongoDB query (existing `getAllProductsService`) in v1; Typesense (`typesense`) only if evals need it | Faceted catalog search | Search problem, not RAG — exact filters (price, stock); the catalog is small enough for Mongo |
-| Query rewrite | Claude Haiku 5.5 | History-aware standalone query | Conversational turns aren't searchable raw |
+| Search question | The agent model (Sonnet 5.5), in the tool call | A self-contained question for `ask_store_knowledge` | Conversational turns aren't searchable raw; the agent already sees the conversation, so a separate rewrite hop was dropped (spec 013) |
 | Embeddings | **Voyage `voyage-3.5`** (`voyageai`) | Vectorize store-knowledge chunks | Claude-native recommended embeddings |
 | Vector + lexical | MongoDB Atlas Vector Search + Atlas Search (BM25) | Hybrid retrieve (top ~20) | Keyword + semantic; one datastore |
 | Rerank | **Voyage `rerank-2.5`** | Precision rerank (top ~4) | Cheap precision bump; wrong answer = false promise |

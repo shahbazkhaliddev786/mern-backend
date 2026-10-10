@@ -1,11 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { AIMessage, AIMessageChunk, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { Command, MemorySaver } from '@langchain/langgraph';
 import { STEP_BUDGET } from './config';
 import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from './graph';
 import { REFUSAL_REPLY, STEP_BUDGET_REPLY, SYSTEM_PROMPT } from './prompt';
-import { toAgentEvents, visibleText } from './stream';
+import { toAgentEvents, toolStartEvent, visibleText } from './stream';
 import { recordingTool, ScriptedChatModel, toolCall } from './test-utils';
+import { askStoreKnowledgeTool } from './tools/ask-store-knowledge';
+
+const knowledge = vi.hoisted(() => ({ askKnowledge: vi.fn() }));
+vi.mock('./rag/knowledge.js', () => knowledge);
 
 const run = async (model: ScriptedChatModel, tools: ReturnType<typeof recordingTool>[], threadId = 't1', message = 'hi', checkpointer = new MemorySaver()) => {
   const graph = buildAgentGraph({ model, tools: tools.map((t) => t.tool), checkpointer, userId: 'u1' });
@@ -69,6 +73,28 @@ describe('agent graph', () => {
     const messages = await run(new ScriptedChatModel([refusal]), [tool]);
     expect(tool.runs).toHaveLength(0);
     expect(lastText(messages)).toBe(REFUSAL_REPLY);
+  });
+});
+
+describe('store knowledge (spec 013)', () => {
+  it('looks up a policy without asking for confirmation and answers from the passage', async () => {
+    knowledge.askKnowledge.mockResolvedValue({
+      found: true,
+      passages: [{ id: 'shipping.md#how-much-does-shipping-cost', topic: 'Shipping', question: 'How much does shipping cost?', text: 'Shipping is free on every order.', score: 0.9 }],
+    });
+    const model = new ScriptedChatModel([
+      toolCall('ask_store_knowledge', { question: 'How much does shipping cost?' }),
+      new AIMessage('Per our shipping policy, shipping is free on every order.'),
+    ]);
+    const graph = buildAgentGraph({ model, tools: [askStoreKnowledgeTool({ userId: 'u1' })], checkpointer: new MemorySaver(), userId: 'u1' });
+    const state = await graph.invoke(
+      { messages: [new HumanMessage('do I pay for shipping?')], toolCalls: 0 },
+      { configurable: { thread_id: 'k1' }, recursionLimit: RECURSION_LIMIT },
+    );
+    expect(knowledge.askKnowledge).toHaveBeenCalledWith('How much does shipping cost?');
+    expect(lastText(state.messages as BaseMessage[])).toBe('Per our shipping policy, shipping is free on every order.');
+    expect(model.calls[1]!.some((m) => m instanceof ToolMessage && String(m.content).includes('free on every order'))).toBe(true);
+    expect(toolStartEvent('ask_store_knowledge')).toEqual({ event: 'tool_start', data: { tool: 'ask_store_knowledge', label: 'Checking store policies…' } });
   });
 });
 

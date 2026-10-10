@@ -88,6 +88,7 @@ afterAll(() => servers.forEach((server) => server.close()));
 beforeEach(() => {
   config.AGENT_ENABLED = 'true';
   config.ANTHROPIC_API_KEY = 'test-key';
+  config.VOYAGE_API_KEY = 'test-voyage-key';
   config.LANGSMITH_TRACING = 'false';
   checkpointer = new MemorySaver();
   claimed = new Set();

@@ -65,10 +65,10 @@ flowchart TB
     end
 
     subgraph RAGPipe["RAG query pipeline — ask_store_knowledge"]
-        QR["1. Query rewrite (history-aware)<br/>Claude Haiku 5.5"]
-        HYB["2. Hybrid retrieve: vector + BM25 (top 20)"]
-        RR["3. Rerank — Voyage rerank-2.5 (top 4)"]
-        GEN["4. Grounded answer + citations"]
+        QR["1. Self-contained question<br/>written by the agent model in the tool call"]
+        HYB["2. Hybrid retrieve: vector + BM25, fused (top 20)"]
+        RR["3. Rerank — Voyage rerank-2.5 (top 4, score cut-off)"]
+        GEN["4. Grounded answer naming its topic"]
         QR --> HYB --> RR --> GEN
     end
 
@@ -147,7 +147,7 @@ The source documents and their editing rules are in `mern-backend/knowledge/READ
 ## 3. Request flow (happy path)
 
 1. User message hits Express → **auth boundary** attaches `user_id` + scoped session token server-side. The agent requires login in v1 — guests get a sign-in prompt instead of the chat ([`reconciliation.md`](./reconciliation.md) Gap 16).
-2. **Agent (Sonnet 5.5)** reads **short-term memory** (checkpointer thread state) and picks a tool through native tool use. There is no separate intent router: one would add latency and a misrouting failure, so it's added only if evals show it beats self-routing ([`reconciliation.md`](./reconciliation.md) Gap 3). The only Haiku step is the history-aware query rewrite inside `ask_store_knowledge`.
+2. **Agent (Sonnet 5.5)** reads **short-term memory** (checkpointer thread state) and picks a tool through native tool use. There is no separate intent router: one would add latency and a misrouting failure, so it's added only if evals show it beats self-routing ([`reconciliation.md`](./reconciliation.md) Gap 3). `ask_store_knowledge` has no separate query-rewrite step either: the agent writes the search question itself, with the whole conversation in view (spec 013). Haiku only writes the per-chunk context lines at ingestion.
 3. The system prompt and tool definitions are identical on every request; per-request facts (cart contents, the user's name) arrive as messages or tool results. This keeps the prompt cache warm and is required on these models, which reject a history whose earlier turns, system prompt or tools changed (see [`tech-stack.md`](./tech-stack.md) Layer 3).
 4. **Read tool** or **reversible cart write** (`add_to_cart`, `update_cart_item`) → auto-executes (writes are audited). **Confirm-required tool** (see §4) → `interrupt()` surfaces a summary ("3 items, $142.50, ship to Home — confirm?") and waits for explicit user yes. The pause lives only in the Mongo checkpointer, so the confirming request can land on any instance. Before resuming, the server **claims the interrupt id** with a unique insert: only one confirm can win, and a double-click or a retried request gets "already confirmed" instead of running the tool twice ([spec 002](../spec/002-m1-interrupt-resume-across-requests.md)).
 5. Tool runs with **server-side authz** (`WHERE user_id = ?`), hits MongoDB (products, carts, orders, users) or Atlas Search (store knowledge).
@@ -213,7 +213,7 @@ Before payment, a checkout is a `PendingCheckout`, not an order: there are no un
 |---|---|---|---|
 | Orchestration | **LangGraph.js** | Single agent + tools; `interrupt()` HITL; Mongo checkpointer. Not multi-agent — no confusion at this scope. | Shopify Sidekick = "relatively simple agent: LLM + tools" |
 | Agent model | **Claude Sonnet 5.5** (`claude-sonnet-5-5`) | Best tool-use/cost balance ($2/$10 per MTok); 1M ctx; adaptive thinking with an explicit effort level. Opus as the default = overkill cost (used only for escalation); Haiku = too weak for multi-step. M7 evals also compare a single Opus 5.5 at lower effort against this cascade. | Rufus runs on Claude Sonnet via Bedrock |
-| Query-rewrite model | **Claude Haiku 5.5** (`claude-haiku-5-5`) | Cheap history-aware rewrite for knowledge retrieval only. A separate intent router is deferred until evals show it beats self-routing ([`reconciliation.md`](./reconciliation.md) Gap 3). | Rufus has a query-planning/classification layer |
+| Knowledge context model | **Claude Haiku 5.5** (`claude-haiku-5-5`) | Writes the one-line context for each knowledge chunk at ingestion (offline). No query rewrite at request time: the agent model writes a self-contained question in the tool call (spec 013). A separate intent router is deferred until evals show it beats self-routing ([`reconciliation.md`](./reconciliation.md) Gap 3). | Rufus has a query-planning/classification layer |
 | Escalation model | **Claude Opus 5.5** (`claude-opus-5-5`) | Only on stuck turns (loop, step budget, repeated tool error) — bounded cost, higher success on the hard tail. Same tools + same confirmation gate, so no extra privilege. Not a second agent. | — |
 | Product search | **MongoDB query in v1; Typesense if evals need it** | Search problem, not RAG — need exact filters (price ≤ 50, in-stock). Vectors can't guarantee "under $50". The catalog is small, so the existing Mongo filters cover v1; Typesense (typo tolerance, relevance ranking) is added only if search evals fail. | — |
 | Knowledge retrieval | **Hybrid (vector + BM25)** | Policy text is keyword-heavy ("refund", "30 days"); pure vector misses exact terms, pure BM25 misses paraphrase. | Shopify: "hybrid retrieval — lexical + semantic" |
@@ -236,7 +236,7 @@ Before payment, a checkout is a `PendingCheckout`, not an order: there are no un
 - **Multi-agent** — single agent + tools is enough at this scope; Shopify runs 100M+ convos this way. (Opus escalation is a model swap for one turn, not a second agent.)
 - **A separate intent router** — the agent model routes through native tool use; a Haiku router would add a hop and a misrouting failure, so it waits for evidence from evals ([`reconciliation.md`](./reconciliation.md) Gap 3).
 - **GraphRAG** — no entity graph to traverse in a flat FAQ/policy KB.
-- **HyDE / Self-RAG / CRAG** — extra latency for marginal gain once I have query-rewrite + hybrid + rerank; would revisit only if eval hallucination rate demanded it.
+- **HyDE / Self-RAG / CRAG** — extra latency for marginal gain once I have self-contained questions + hybrid + rerank; would revisit only if eval hallucination rate demanded it.
 - **Separate vector DB** — Atlas keeps it one datastore.
 - **LLM long-term memory for orders/profile** — that's authoritative structured data, accessed via tools.
 - **Fine-tuning** — knowledge stays in retrieval so policies update without retraining.

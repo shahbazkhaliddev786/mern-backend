@@ -16,6 +16,8 @@ const services = vi.hoisted(() => ({
   applyAvatarUpload: vi.fn(),
   findOwnedUpload: vi.fn(),
   getUserById: vi.fn(),
+  askKnowledge: vi.fn(),
+  logInfo: vi.fn(),
   brandNames: [] as { _id: string; name: string }[],
   categoryNames: [] as { _id: string; name: string }[],
 }));
@@ -59,6 +61,8 @@ vi.mock('../../services/upload.service.js', () => {
     UploadNotFoundError,
   };
 });
+vi.mock('../rag/knowledge.js', () => ({ askKnowledge: services.askKnowledge }));
+vi.mock('../../utils/logger.js', () => ({ default: { info: services.logInfo, error: vi.fn(), warn: vi.fn() } }));
 // Name lookups: find({ name: { $in: [regex] } }).select().lean() against an in-memory list.
 const { nameModel } = vi.hoisted(() => ({
   nameModel: (list: () => { _id: string; name: string }[]) => ({
@@ -100,7 +104,7 @@ beforeEach(() => {
 describe('tool definitions', () => {
   const schemaOf = (t: { schema: unknown }) => z.toJSONSchema(t.schema as z.ZodType);
 
-  it('exposes the six read tools and the write tools', () => {
+  it('exposes the seven read tools and the write tools', () => {
     expect(buildToolsForRequest(A).map((t) => t.name)).toEqual([...AGENT_TOOL_NAMES]);
   });
 
@@ -123,7 +127,7 @@ describe('tool definitions', () => {
 
   it('marks reads, writes, and which writes need confirmation', () => {
     const metadata = Object.fromEntries(buildToolsForRequest(A).map((t) => [t.name, t.metadata]));
-    for (const name of ['search_products', 'get_product_details', 'view_cart', 'view_orders', 'get_order_status', 'view_profile']) {
+    for (const name of ['search_products', 'get_product_details', 'ask_store_knowledge', 'view_cart', 'view_orders', 'get_order_status', 'view_profile']) {
       expect(metadata[name]).toEqual({ kind: 'read', confirmRequired: false });
     }
     expect(metadata.add_to_cart).toEqual({ kind: 'write', confirmRequired: false });
@@ -153,6 +157,44 @@ describe('identity comes from the closure', () => {
       expect(services.getMyOrderById).toHaveBeenLastCalledWith(ctx.userId, ORDER_ID);
       expect(services.getUserById).toHaveBeenLastCalledWith(ctx.userId);
     }
+  });
+});
+
+describe('ask_store_knowledge', () => {
+  const passage = { id: 'returns.md#how-long-do-i-have-to-return-something', topic: 'Returns and refunds', question: 'How long do I have to return something?', text: 'You can return any product within 30 days.', score: 0.91 };
+
+  it('takes only a question, 3–300 characters', async () => {
+    const schema = z.toJSONSchema(toolNamed(A, 'ask_store_knowledge').schema as z.ZodType) as { properties: object };
+    expect(Object.keys(schema.properties)).toEqual(['question']);
+    await expect(toolNamed(A, 'ask_store_knowledge').invoke({ question: 'hi' })).rejects.toThrow();
+    await expect(toolNamed(A, 'ask_store_knowledge').invoke({ question: 'x'.repeat(301) })).rejects.toThrow();
+  });
+
+  it('returns the passages without ids or scores', async () => {
+    services.askKnowledge.mockResolvedValue({ found: true, passages: [passage] });
+    const result = await call(A, 'ask_store_knowledge', { question: '  How long is the return window?  ' });
+    expect(services.askKnowledge).toHaveBeenCalledWith('How long is the return window?');
+    expect(result).toEqual({ found: true, passages: [{ topic: 'Returns and refunds', question: passage.question, text: passage.text }] });
+  });
+
+  it('gives the contact options when nothing is found', async () => {
+    services.askKnowledge.mockResolvedValue({ found: false, passages: [] });
+    const result = await call(A, 'ask_store_knowledge', { question: 'How long does delivery take?' });
+    expect(result).toEqual({ found: false, contact: expect.stringContaining('hello@aljostore.com') });
+    expect(result.contact).toContain('/contact');
+  });
+
+  it('turns a search failure into a plain error with the contact options', async () => {
+    services.askKnowledge.mockRejectedValue(new Error('Voyage 503'));
+    const result = await call(A, 'ask_store_knowledge', { question: 'Do you charge tax?' });
+    expect(result.error).toMatch(/^I can't look up store policies right now\. .*hello@aljostore\.com/);
+  });
+
+  it('logs ids and the top score, never the question', async () => {
+    services.askKnowledge.mockResolvedValue({ found: true, passages: [passage] });
+    await call(A, 'ask_store_knowledge', { question: 'My name is Jane, how long can I return?' });
+    expect(services.logInfo).toHaveBeenCalledWith('AGENT_RETRIEVAL', { userId: A.userId, found: true, ids: [passage.id], topScore: 0.91 });
+    expect(JSON.stringify(services.logInfo.mock.calls)).not.toContain('Jane');
   });
 });
 

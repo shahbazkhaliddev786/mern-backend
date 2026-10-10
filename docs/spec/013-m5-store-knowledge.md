@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M5 — Store knowledge (RAG) ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -122,40 +122,40 @@ The embedder, reranker and search calls are injected (`RetrievalDeps`), so unit 
 
 ## Tasks
 
-- [ ] Chunker (pure function) + `ingest.ts` + `npm run agent:ingest` (`--dry-run`)
-- [ ] `agent:setup`: `knowledge_vector` and `knowledge_text` indexes
-- [ ] `retrieve.ts`: hybrid search, RRF, rerank, cut-off; injected deps
-- [ ] `ask_store_knowledge` tool, label, audit log; prompt + `PROMPT_VERSION` 6
-- [ ] Goldens + DeepEval test + `npm run eval:knowledge`
-- [ ] Tests (below)
-- [ ] Design docs: remove the query-rewrite step (architecture.md, tech-stack.md, reconciliation Gap 3, phases.md M5)
-- [ ] Update `phases.md` §0, `knowledge/README.md` (how to re-ingest), and the spec index
+- [x] Chunker (pure function) + `ingest.ts` + `npm run agent:ingest` (`--dry-run`)
+- [x] `agent:setup`: `knowledge_vector` and `knowledge_text` indexes
+- [x] `retrieve.ts`: hybrid search, RRF, rerank, cut-off; injected deps
+- [x] `ask_store_knowledge` tool, label, audit log; prompt + `PROMPT_VERSION` 6
+- [x] Goldens + DeepEval test + `npm run eval:knowledge`
+- [x] Tests (below)
+- [x] Design docs: remove the query-rewrite step (architecture.md, tech-stack.md, reconciliation Gap 3, phases.md M5)
+- [x] Update `phases.md` §0, `knowledge/README.md` (how to re-ingest), and the spec index
 
 ## Acceptance criteria
 
-- [ ] **Chunker:** 27 chunks from today's files, ids are stable, no chunk contains `TODO(owner)` or an HTML comment, and each carries its file title — unit test
-- [ ] **Ingestion:**
-  - [ ] A second run changes nothing and makes no Voyage or Claude calls.
-  - [ ] An edited chunk is re-embedded.
-  - [ ] A removed chunk, or one that gained a `TODO(owner)`, is deleted.
-  - [ ] A context-line refusal doesn't stop ingestion.
-  - [ ] Covered by tests with mocked Voyage and Claude against MongoDB.
-- [ ] **`agent:setup`:** creates both search indexes on Atlas local, and running it again changes nothing — MongoDB test (Atlas local)
-- [ ] **Retrieval:**
-  - [ ] RRF ordering is correct.
-  - [ ] Only the top 4 passages after rerank are kept.
-  - [ ] Passages below the cut-off are dropped; none left → `found: false`; an empty collection → `found: false`.
-  - [ ] Covered by unit tests with injected deps.
-- [ ] **Hybrid on real search:** for at least 80% of the goldens, an expected chunk is in the fused top 5 — Atlas local test with the fake embedder
-- [ ] **Tool:**
-  - [ ] The schema has only `question`.
-  - [ ] It's auto (no confirmation).
-  - [ ] `found: false` and errors both carry the contact text.
-  - [ ] The audit log has no question text.
-  - [ ] Covered by tool tests.
-- [ ] **Graph:** a scripted turn calls `ask_store_knowledge` and the answer streams — graph test
-- [ ] **Goldens:** 27 + 5, each `expectedOutput` traceable to its chunk; `npm run eval:knowledge` skips cleanly without keys
-- [ ] **Checks:** backend lint 0 errors, build, `npm test` with and without `MONGO_URL` / `ATLAS_URL`
+- [x] **Chunker:** 27 chunks from today's files, ids are stable, no chunk contains `TODO(owner)` or an HTML comment, and each carries its file title — unit test
+- [x] **Ingestion:**
+  - [x] A second run changes nothing and makes no Voyage or Claude calls.
+  - [x] An edited chunk is re-embedded.
+  - [x] A removed chunk, or one that gained a `TODO(owner)`, is deleted.
+  - [x] A context-line refusal doesn't stop ingestion.
+  - [x] Covered by tests with mocked Voyage and Claude against MongoDB.
+- [x] **`agent:setup`:** creates both search indexes on Atlas local, and running it again changes nothing — MongoDB test (Atlas local)
+- [x] **Retrieval:**
+  - [x] RRF ordering is correct.
+  - [x] Only the top 4 passages after rerank are kept.
+  - [x] Passages below the cut-off are dropped; none left → `found: false`; an empty collection → `found: false`.
+  - [x] Covered by unit tests with injected deps.
+- [x] **Hybrid on real search:** for at least 80% of the goldens, an expected chunk is in the fused top 5 — Atlas local test with the fake embedder
+- [x] **Tool:**
+  - [x] The schema has only `question`.
+  - [x] It's auto (no confirmation).
+  - [x] `found: false` and errors both carry the contact text.
+  - [x] The audit log has no question text.
+  - [x] Covered by tool tests.
+- [x] **Graph:** a scripted turn calls `ask_store_knowledge` and the answer streams — graph test
+- [x] **Goldens:** 27 + 5 (+ 3 follow-ups), each `expectedOutput` traceable to its chunk; `npm run eval:knowledge` skips cleanly without keys
+- [x] **Checks:** backend lint 0 errors, build, `npm test` 157 + 28 skipped / 185 with `MONGO_URL` and `ATLAS_URL`
 
 ## Test plan
 
@@ -168,9 +168,38 @@ The embedder, reranker and search calls are injected (`RetrievalDeps`), so unit 
 
 _None — resolved 2026-10-10, see the decision log._
 
+## Results
+
+**2026-10-10** — backend only.
+- **Files:**
+  - `src/agent/rag/`: `chunk.ts`, `context.ts`, `voyage.ts`, `ingest.ts`, `indexes.ts`, `retrieve.ts`, `knowledge.ts`
+  - `src/agent/ingest.ts` (the `agent:ingest` command)
+  - `src/agent/tools/ask-store-knowledge.ts`
+  - `evals/knowledge.goldens.json`, `evals/knowledge.eval.ts`, `evals/vitest.config.ts`
+  - plus edits to `setup.ts`, `config.ts`, `prompt.ts`, `stream.ts` and `tools/index.ts`
+- **`npm run agent:ingest -- --dry-run`:** 27 chunks; 10 skipped (`TODO(owner)`).
+- **`npm run agent:setup` on Atlas local:** created `knowledge_vector` and `knowledge_text`; a second run created nothing. On plain MongoDB it reports *"search indexes not created — this database isn't Atlas"* and the rest of setup still runs.
+- **New tests (27):**
+  - `chunk.test.ts` (7), including a check that every live chunk has a golden
+  - `retrieve.test.ts` (6)
+  - `ingest.mongo.test.ts` (5)
+  - `knowledge.atlas.test.ts` (4)
+  - 5 tool tests and 1 graph test
+  - The config test now requires the Voyage key.
+- **Lexical floor on Atlas local:** 93% (28 of 30 answerable goldens have an expected chunk in the fused top 5). The two misses are pure paraphrases ("What are your products made from?" → *materials*; "How do I buy something?" → *place an order*), which is what the real embedder is for.
+- **Not yet run:** `npm run eval:knowledge` (contextual recall, precision and relevancy, plus faithfulness, judged by Opus 5.5). It needs `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`, and an Atlas database that has been set up and ingested. The cut-off (0.3) gets tuned on that run.
+
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
 | 2026-10-10 | No Haiku query rewrite; the tool takes a self-contained `question` written by the agent model | The agent model writes the search query with the whole conversation in view, so a rewrite step adds a model call and a failure path for little gain. Follow-up goldens check it; the rewrite comes back if recall suffers |
 | 2026-10-10 | Production runs on MongoDB Atlas (owner confirmed) | `$vectorSearch` and `$search` are available, so the design stands as written |
+| 2026-10-10 | The `agent:ingest` command is `src/agent/ingest.ts`, next to `setup.ts`; the logic is in `src/agent/rag/ingest.ts` | Same layout as `agent:setup`; the logic is tested without the command's connection handling |
+| 2026-10-10 | `VOYAGE_API_KEY` is now required when the agent is enabled | `ask_store_knowledge` is one of the agent's tools; spec 003 deferred this check to M5 |
+| 2026-10-10 | `agent:setup` leaves an existing search index alone; changing a definition means giving the index a new name | Atlas rebuilds an index on update, and the stored definition includes defaults, so comparing them isn't reliable |
+| 2026-10-10 | `agent:setup` reports, instead of failing, on a database without search (plain MongoDB) | Local development on plain MongoDB still gets the checkpointer indexes |
+| 2026-10-10 | `AGENT_MODELS.queryRewrite` is renamed to `knowledgeContext` | With no query rewrite, Haiku's only job is the chunk context lines at ingestion |
+| 2026-10-10 | 3 follow-up goldens were added (35 in all), each with the `searchQuery` it should become | Checks the dropped rewrite: the agent must turn "And what about tax?" into a self-contained question |
+| 2026-10-10 | The eval checks the metric means against the evals.md thresholds; fallback goldens are checked deterministically (`found: false` and the contact details in the answer) | Per-golden thresholds would fail the run on one borderline judgement; the per-golden scores are printed for review |
+| 2026-10-10 | `postinstall` deletes deepeval's stale `dist/telemetry.js`, and `eval:knowledge` sets `DEEPEVAL_TELEMETRY_OPT_OUT=YES` | As decided in spec 001 (C13): without it the metrics can't load |

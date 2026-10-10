@@ -14,6 +14,7 @@ export type AgentEvent =
 export const TOOL_LABELS: Record<string, string> = {
   search_products: 'Searching products…',
   get_product_details: 'Looking at the product…',
+  ask_store_knowledge: 'Checking store policies…',
   view_cart: 'Checking your cart…',
   view_orders: 'Looking up your orders…',
   get_order_status: 'Checking that order…',

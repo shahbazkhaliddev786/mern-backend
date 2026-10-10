@@ -11,7 +11,10 @@
     "start": "cross-env NODE_ENV=production node dist/index.js",
     "test": "vitest run",
     "lint": "eslint .",
-    "agent:setup": "tsx src/agent/setup.ts"
+    "agent:setup": "tsx src/agent/setup.ts",
+    "agent:ingest": "tsx src/agent/ingest.ts",
+    "eval:knowledge": "cross-env DEEPEVAL_TELEMETRY_OPT_OUT=YES vitest run --config evals/vitest.config.ts",
+    "postinstall": "node -e \"require('fs').rmSync('node_modules/deepeval/dist/telemetry.js', { force: true })\""
   },
   "keywords": [],
   "author": "Shahbaz Khalid",

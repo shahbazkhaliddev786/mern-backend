@@ -50,9 +50,9 @@ One account can't run up the model bill, flood the store with changes, or spam t
 
 ## Design
 
-**Budgets** — `src/agent/limits.ts`, code constants like the step budget. The numbers are open question 1.
+**Budgets** — `src/agent/limits.ts`, code constants like the step budget.
 
-| Budget | Counts | Proposed limit | Over the limit |
+| Budget | Counts | Limit | Over the limit |
 |---|---|---|---|
 | `turns` (burst) | each `POST /agent/chat` | 20 per 5 minutes | `429` before the stream starts |
 | `turns` (daily) | the same requests | 150 per 24 hours | `429` before the stream starts |
@@ -126,15 +126,11 @@ One account can't run up the model bill, flood the store with changes, or spam t
 
 ## Open questions
 
-1. **The numbers.** I propose 20 turns per 5 minutes and 150 per day, 30 writes per hour, and 3 support messages per hour.
-   - **The daily cap is the cost ceiling.** At Sonnet 5.5's $2/$10 per million tokens, assuming about 25k input and 1k output tokens per turn across its model calls, a turn costs about $0.06, so 150 turns is about **$9 per account per day** at worst. The real per-turn figure comes from tracing (017); the cap can be tuned then.
-   - **The support cap** matches the site's contact form, which is per-IP at 100 a minute: too loose for an inbox.
-   - Change any of these if you have a different budget in mind.
-2. **Should the daily turn cap exist at all?** It's the only one a real customer could hit in a long session.
-   - **Recommended:** keep it at 150. It bounds a hijacked account's cost to a known number.
-   - **Alternative:** drop it and rely on the 5-minute window (up to about 5,700 turns a day per account).
+_None — resolved 2026-10-10, see the decision log._
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Limits: 20 turns per 5 minutes and 150 per day, 30 writes per hour, 3 support messages per hour | Owner agreed. The daily cap is the cost ceiling (about $9 per account per day at worst, by the spec's estimate) and is retuned with real per-turn costs from tracing (017) |
+| 2026-10-10 | Keep the daily turn cap | Bounds a hijacked account's cost to a known number; without it the 5-minute window allows about 5,700 turns a day |

@@ -103,6 +103,8 @@ The `interrupt()` confirmation gate (see [`architecture.md`](./architecture.md) 
 
 This bounds **excessive agency** — even a successful injection can't silently complete a purchase, cancel an order, or change the account.
 
+One confirmation runs a tool **at most once**. Without a guard, two confirms for the same pause sent at the same moment (a double-click, a retried request) both resume the graph and both run the tool — 20 out of 20 times in [spec 002](../spec/002-m1-interrupt-resume-across-requests.md). So the server claims the interrupt id with a unique insert before resuming, and only the request that wins the claim resumes.
+
 **Deliberately exempt:** `add_to_cart` and `update_cart_item`. They are reversible in one step, move no money, and the cart is always re-shown before `place_order` (which *is* gated). Confirming every cart tweak causes confirmation fatigue — users start clicking "yes" blindly, which weakens the gates that matter. They are still audit-logged and rate-limited.
 
 ---

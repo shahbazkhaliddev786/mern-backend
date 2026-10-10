@@ -12,7 +12,7 @@ _As of 2026-10-10._
 
 | Milestone | Goal | Status |
 |---|---|---|
-| **M1** — Spikes & foundations | Settle the two unknowns that decide how everything else is built | 🟡 In progress — binding chosen offline ([spec 001](../spec/001-m1-langchain-binding-check.md)), live run pending |
+| **M1** — Spikes & foundations | Settle the two unknowns that decide how everything else is built | 🟡 In progress — binding chosen offline ([spec 001](../spec/001-m1-langchain-binding-check.md), live run pending); interrupt/resume across requests proven ([spec 002](../spec/002-m1-interrupt-resume-across-requests.md)); Vercel streaming and config to do |
 | **M2** — Agent core, read-only | A signed-in user can ask about products, cart, orders and profile through the API | ⬜ Not started |
 | **M3** — Chat UI | The same, from a chat panel in the store, with a confirm card ready for M4 | ⬜ Not started |
 | **M4** — Write tools + confirmation gate | The agent changes the cart, checks out, updates the profile and contacts support, asking first where the rule says so | ⬜ Not started |
@@ -62,11 +62,11 @@ mern-frontend/src/features/shopping-agent/
 | `token` | `{ text }` | streamed model text |
 | `tool_start` | `{ tool, label }` | a tool begins ("Searching products…") |
 | `tool_end` | `{ tool, ok }` | a tool finishes |
-| `confirm_required` | `{ tool, summary }` | the graph paused at `interrupt()` |
+| `confirm_required` | `{ interruptId, tool, summary }` | the graph paused at `interrupt()` |
 | `error` | `{ message, retryable }` | turn failed |
 | `done` | `{ threadId }` | turn finished |
 
-Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threadId, resume: { approved } }`; the graph state comes from the checkpointer, never from process memory ([`reconciliation.md`](./reconciliation.md) Gap 14).
+Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threadId, resume: { interruptId, approved } }`; the graph state comes from the checkpointer, never from process memory ([`reconciliation.md`](./reconciliation.md) Gap 14). The server claims `interruptId` before resuming, so a second confirm for the same pause gets "already confirmed", and a confirm with nothing pending gets "nothing to confirm" ([spec 002](../spec/002-m1-interrupt-resume-across-requests.md)).
 
 ---
 
@@ -135,7 +135,7 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 
 **Scope** (in this order — each step reuses the previous one's plumbing):
 1. **Auto writes:** `add_to_cart`, `update_cart_item` (`quantity: 0` removes) — reuse the cart Zod schema (1–99), bounded by stock.
-2. **Confirmation gate:** a tool-node wrapper that calls `interrupt()` with a human-readable summary for every confirm-required tool; the tool runs only on `approved: true`. `clear_cart` is the first tool through it.
+2. **Confirmation gate:** a gate node that calls `interrupt()` with a human-readable summary for every confirm-required tool; the tool runs only on `approved: true`, in the tool node after the gate. Nothing with a side effect goes before `interrupt()` (the gate re-runs from its start on resume), and the claim guard from spec 002 stops concurrent confirms from running a tool twice. `clear_cart` is the first tool through it.
 3. **`place_order(shippingAddress)`:** shared shipping Zod schema; pre-fill from the latest order; the summary shows items, server-computed total and the full address; wraps `createCheckoutSession`; returns the Stripe link. **Checkout-reuse guard:** an unexpired `PendingCheckout` for the same `{ user, cartHash }` returns its link instead of a new session (Gap 5).
 4. **`update_profile(name)`**, **`upload_avatar(uploadId)`** (via `applyAvatarUpload` from M3), **`submit_support_request(subject, message)`** with name/email from the session and `source: 'agent'`.
 5. **`cancel_order(orderId)`:** wraps the store's `cancelOrder(userId, orderId)` service (roadmap step 3: `refunded` status, Stripe refund, `/dashboard` button). If that service hasn't landed, M4 ships without this tool and it's added when it does.

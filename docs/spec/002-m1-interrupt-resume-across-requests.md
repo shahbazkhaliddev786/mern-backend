@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M1 — Spikes & foundations ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -79,35 +79,60 @@ START → agent → gate → tools → agent → END
 
 ## Tasks
 
-- [ ] Local MongoDB 7 for the spike (Docker), `MONGO_URL` override
-- [ ] `graph.ts` (scripted agent, gate, tool with DB side effect, gate-entry counter)
-- [ ] `request.ts` (one call per process: `start`, `resume`, `stream-start`, `stream-resume`)
-- [ ] `run.ts` driving I1–I9 through child processes; writes `results.md`
-- [ ] If I6 shows double execution: implement and test the claim guard in the spike
-- [ ] Record the M2/M4 rules in the decision log; update `architecture.md` §3 if the confirmation flow changes
-- [ ] Update `phases.md` §0 and the spec index
+- [x] Local MongoDB 7 for the spike (Docker), `MONGO_URL` override
+- [x] `graph.ts` (scripted agent, gate, tool with DB side effect, gate-entry counter)
+- [x] `request.ts` (one call per process: `setup`, `start`, `resume-yes`, `resume-no`, `resume-yes-guarded`, `stream-start`, `stream-resume-yes`)
+- [x] `run.ts` driving I1–I9; writes `results.md`
+- [x] I6 showed double execution: claim guard implemented and tested in the spike (`race.ts`)
+- [x] Record the M2/M4 rules in the decision log; update `architecture.md` §3 (plus `phases.md` §2/M4 and `security.md` §6)
+- [x] Update `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] I1–I9 each have a result with evidence in `results.md` — verified by reading it
-- [ ] I2 shows the tool running exactly once, from a process that never saw the pause — the core M1 question
-- [ ] The rule for duplicate confirms is decided, with a tested guard if I6 needs one
-- [ ] The connection choice (shared mongoose client or own client) and a checkpoint TTL are decided
-- [ ] `npm run lint`, `npm run build` and `npm test` still pass
+- [x] I1–I9 each have a result with evidence in `results.md` — verified by reading it
+- [x] I2 shows the tool running exactly once, from a process that never saw the pause — with both the mongoose client and the checkpointer's own client
+- [x] The rule for duplicate confirms is decided, with a tested guard — I6: 20/20 double runs without it, 20/20 single runs with it
+- [x] The connection choice and a checkpoint TTL are decided — the app's mongoose client; 30 days
+- [x] `npm run lint`, `npm run build` and `npm test` still pass — lint 0 errors (106 existing `any` warnings), build clean, 51/51 tests
 
 ## Test plan
 
-`run.ts` is the test: it drives every check through separate processes and asserts on MongoDB counts, so results don't depend on in-memory state. Run from `mern-backend/` with the container up: `npx tsx spikes/002-interrupt-resume/run.ts`.
+`run.ts` is the test: it drives every check through separate processes (I6 through `race.ts`, see below) and asserts on MongoDB counts, so results don't depend on in-memory state. Run from `mern-backend/` with MongoDB up:
+
+```bash
+docker run -d --name spike-mongo -p 27017:27017 mongo:7   # or set MONGO_URL
+npx tsx spikes/002-interrupt-resume/run.ts
+```
 
 ## Open questions
 
-- **Checkpoint lifetime:** how long should a conversation's checkpoints live? Recommendation: 30 days of inactivity (`ttl: 2_592_000`) — long enough to return to a chat, short enough to bound storage and stored PII. The spike only checks that TTL works; the number is a product call.
+_None — resolved 2026-10-10, see the decision log._
 
 ## Results
 
-_Filled in when the checks run._
+**Run 2026-10-10** against MongoDB 7.0 — full evidence in [`spikes/002-interrupt-resume/results.md`](../../spikes/002-interrupt-resume/results.md).
+
+| Check | Result | What it showed |
+|---|---|---|
+| I1 pause | pass | `invoke` returns `__interrupt__: [{ id, value: { tool, args, summary } }]`; `getState().next` is `['gate']`; the tool hasn't run |
+| I2 resume in another process | pass | a new process with a new client, checkpointer and graph resumes; the tool runs exactly once; resume took ~150–190 ms locally (~35 ms of it connecting). Same result with the mongoose client (driver 7) and the checkpointer's own client (driver 6) |
+| I3 declined | pass | the tool never runs; the agent gets the decline `ToolMessage` and answers |
+| I4 gate re-entry | finding | the gate node starts **twice** per confirmation — once to pause, once on resume |
+| I5 duplicate confirm, sequential | pass | resuming a finished turn is a silent no-op: same final state, tool not re-run |
+| I6 duplicate confirm, concurrent | **finding → guard** | two confirms on the same tick, from independent clients and graphs: **the tool ran twice in 20 of 20 rounds**. With the claim guard (unique insert of the interrupt id before resuming): once in 20 of 20; the loser gets "already confirmed". (Separate processes hid this at first: ~1 s of start-up jitter meant they never overlapped, so I6 uses `race.ts`) |
+| I7 nothing pending | finding | resuming an unknown or finished thread returns normally with nothing done — no error. The claim guard turns it into "nothing pending" |
+| I8 streaming | pass | with `streamMode: ['updates', 'messages']` the pause arrives as an `updates` chunk keyed `__interrupt__` (with the id and value); the resumed stream carries the tool message and the final text |
+| I9 connection and lifetime | pass | (a) `MongoDBSaver` works on mongoose's client despite bundling driver 6 types (needs a type cast); (b) `setup()` with `ttl` creates `upserted_at` TTL indexes (2,592,000 s) on both collections; (c) one confirmed turn ≈ 12 KB (6 checkpoint docs, 7.6 KB; 12 write docs, 4.3 KB) |
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved. Checkpoints expire after **30 days** of inactivity (`ttl: 2_592_000`) | Long enough to return to a chat; bounds storage and stored personal data |
+| 2026-10-10 | **The checkpointer uses the app's mongoose client** (`mongoose.connection.getClient()`, cast to the checkpointer's `MongoClient` type) | Works at runtime on driver 7 (I2, I9a) and avoids a second connection pool per serverless instance |
+| 2026-10-10 | `checkpointer.setup()` runs once per environment (a deploy-time script), not per request | It creates indexes; the TTL ones need it (I9b) |
+| 2026-10-10 | **Rule: nothing with a side effect goes before `interrupt()`.** The gate only decides; tools run in the tool node after it | The gate node re-runs from its start on resume (I4) |
+| 2026-10-10 | **A confirm claims its interrupt before resuming** — unique insert of the interrupt id into a `confirm_claims` collection (with the same 30-day TTL); the loser answers "already confirmed", and a resume with nothing pending answers "nothing to confirm". Built for real in M4 | Without it, concurrent confirms run the tool twice every time (I6); with it, exactly once. Plain resumes on finished or unknown threads fail silently (I5, I7), so the endpoint must check |
+| 2026-10-10 | The SSE `confirm_required` event carries `interruptId`, and the resume request sends it back: `{ threadId, resume: { interruptId, approved } }` | The claim needs the id; `__interrupt__` already provides it in both invoke and stream results (I1, I8). Recorded in `phases.md` §2 |
+| 2026-10-10 | M2 streams with `streamMode: ['updates', 'messages']` | `updates` carries `__interrupt__` for `confirm_required`; `messages` carries tokens and tool messages (I8) |
+| 2026-10-10 | Known limit, accepted: if the request that won the claim dies before the tool runs, that confirmation is lost and the customer asks again | Rare, and safe — the failure mode is "nothing happened", never "it happened twice" |

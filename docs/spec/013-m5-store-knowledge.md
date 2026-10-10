@@ -6,7 +6,7 @@
 | **Milestone** | M5 — Store knowledge (RAG) ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
-| **Closed by** | — |
+| **Closed by** | `bed57d4` |
 | **Repo** | `mern-backend` only (answers show in the existing chat panel) |
 
 ## Goal

@@ -137,7 +137,7 @@ DeepEval-TS is beta; **we keep it** (expected to stabilize). The deterministic s
 1. ✅ **Bugs first** — server-side `tax`/`shipping` (Bug A) + shared `shippingSchema` server-side validation (Bug B). Live defects; unblock Gaps 1 & 2. *Done and committed 2026-10-10.*
 2. ✅ **Doc reconciliation pass** — payment language, field names, statuses, COD path. *Done 2026-10-10:* payment-first `place_order` with the checkout-reuse guard (Gaps 1, 5); lowercase statuses and the `user` field (Gap 2); Stripe-only, no COD (§5); no separate router (Gap 3); Mongo product search in v1, Typesense deferred; models moved to Claude Sonnet 5.5 / Haiku 5.5 / Opus 5.5, with their API rules (effort instead of thinking budgets, no forced tool calls, append-only history, refusal handling) in tech-stack.md Layer 3; Gap 18's items.
 3. **`cancel_order` + `refunded` enum** (Gap 6 + Gap 2 enum change), plus the stock-deduction fix (follow-ups §4) and a `/dashboard` cancel button sharing the agent's service. *Next.*
-4. **Agent layer** — tool closures over `ctx.userId`, step/loop config (Gap 4), narrow query-rewrite (Gap 3). Separate router deferred behind an eval.
+4. **Agent layer** — tool closures over `ctx.userId`, step/loop config (Gap 4), narrow query-rewrite (Gap 3). Separate router deferred behind an eval. Broken into milestones M1–M7 in [`phases.md`](./phases.md).
 
 ---
 

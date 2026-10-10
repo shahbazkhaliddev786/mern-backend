@@ -28,4 +28,4 @@ Add a row when a spec is created; update its status as it moves.
 | # | Spec | Milestone | Status | Closed by |
 |---|---|---|---|---|
 | 001 | [LangChain binding check](./001-m1-langchain-binding-check.md) | M1 | In progress | — |
-| 002 | [Interrupt and resume across requests](./002-m1-interrupt-resume-across-requests.md) | M1 | Done | this commit |
+| 002 | [Interrupt and resume across requests](./002-m1-interrupt-resume-across-requests.md) | M1 | Done | `6ec320b` |

@@ -5,12 +5,20 @@ import type { ChatDeps } from '../agent/chat.service.js';
 // Imported directly rather than through controllers/index.js, like support.routes.ts, so the
 // router can be tested without loading every controller.
 import { agentAvailable, chatRequestSchema, createChatHandler } from '../controllers/agent.controller.js';
+import { streamProbe } from '../controllers/stream-probe.controller.js';
+import config from '../config/config.js';
 
 // The AI shopping agent (docs/shopping-agent). Signed-in customers only (reconciliation.md Gap 16).
 // `auth` and `deps` are replaceable for tests.
-export const createAgentRouter = ({ deps, auth = authMiddleware }: { deps?: ChatDeps; auth?: RequestHandler } = {}) => {
+export const createAgentRouter = ({
+  deps,
+  auth = authMiddleware,
+  streamProbeEnabled = config.STREAM_PROBE_ENABLED === 'true',
+}: { deps?: ChatDeps; auth?: RequestHandler; streamProbeEnabled?: boolean } = {}) => {
   const router = Router();
   router.post('/chat', agentAvailable, auth, validateBody(chatRequestSchema), createChatHandler(deps));
+  // TEMPORARY (spec 004): only exists when switched on; removed when the spec closes.
+  if (streamProbeEnabled) router.post('/_stream-probe', streamProbe);
   return router;
 };
 

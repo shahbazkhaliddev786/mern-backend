@@ -46,10 +46,12 @@ async function start(router: express.Router) {
 
 let withTestAuth = '';
 let withRealAuth = '';
+let withProbe = '';
 
 beforeAll(async () => {
   withTestAuth = await start(createAgentRouter({ deps, auth: testAuth }));
   withRealAuth = await start(createAgentRouter({ deps }));
+  withProbe = await start(createAgentRouter({ deps, auth: testAuth, streamProbeEnabled: true }));
 });
 afterAll(() => servers.forEach((server) => server.close()));
 
@@ -160,5 +162,31 @@ describe.skipIf(!process.env.MONGO_URL)('POST /agent/chat — memory in MongoDB'
     checkpointer = createCheckpointer();
     await readEvents(await post(withTestAuth, { message: 'Show me the chat', threadId }, 'mallory'));
     expect(humanTexts(model.calls[2]!)).toEqual(['Show me the chat']);
+  });
+});
+
+// TEMPORARY (spec 004): the streaming probe.
+describe('POST /agent/_stream-probe', () => {
+  const probeUrl = (base: string, seconds: string) => base.replace(/\/chat$/, `/_stream-probe?seconds=${seconds}`);
+
+  it('does not exist unless switched on', async () => {
+    expect((await fetch(probeUrl(withTestAuth, '2'), { method: 'POST' })).status).toBe(404);
+  });
+
+  it('streams one tick per second, then done', async () => {
+    const started = Date.now();
+    const response = await fetch(probeUrl(withProbe, '2'), { method: 'POST' });
+    expect(response.headers.get('content-type')).toBe('text/event-stream');
+    const events = await readEvents(response);
+    const named = events.filter((e) => e.event);
+    expect(named.map((e) => e.event)).toEqual(['tick', 'tick', 'done']);
+    expect(named[1]!.data.i).toBe(2);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1900);
+  });
+
+  it('rejects a duration outside 1-300 seconds', async () => {
+    expect((await fetch(probeUrl(withProbe, '0'), { method: 'POST' })).status).toBe(400);
+    expect((await fetch(probeUrl(withProbe, '301'), { method: 'POST' })).status).toBe(400);
+    expect((await fetch(probeUrl(withProbe, 'abc'), { method: 'POST' })).status).toBe(400);
   });
 });

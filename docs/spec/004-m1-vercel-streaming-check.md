@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | In progress |
 | **Milestone** | M1 — Spikes & foundations ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-10 |
 | **Updated** | 2026-10-10 |
@@ -64,9 +64,9 @@ Find out, on a real Vercel deployment, whether the backend can stream a long cha
 
 ## Tasks
 
-- [ ] Probe route (behind `STREAM_PROBE_ENABLED`) + `.env.example` entry
-- [ ] `spikes/004-vercel-streaming/probe.ts`
-- [ ] R1 locally
+- [x] Probe route (behind `STREAM_PROBE_ENABLED`) + `.env.example` entry
+- [x] `spikes/004-vercel-streaming/probe.ts`
+- [x] R1 locally (plus a negative control through a buffering proxy)
 - [ ] **You:** deploy backend and frontend previews from this branch with `STREAM_PROBE_ENABLED=true` on the backend preview, and send me the two preview URLs
 - [ ] R2 and R3 (from your machine, or from here once `vercel.app` is allowed)
 - [ ] Apply the decision rule; set `maxDuration` in `vercel.json` if staying on Vercel
@@ -86,14 +86,38 @@ The probe is the test (R1–R3). The route also gets one unit test: with `STREAM
 
 ## Open questions
 
-- **Who runs R2/R3:** you from your machine (`npx tsx spikes/004-vercel-streaming/probe.ts <url> 90`), or me after `vercel.app` is allowed in this environment's network settings?
+Deferred by the owner on approval; answer before R2/R3:
+- **Who runs R2/R3:** the owner from their machine (`npx tsx spikes/004-vercel-streaming/probe.ts <url> 90`), or Claude after `vercel.app` is allowed in this environment's network settings?
 - **Preview deployments:** does the backend Vercel project build previews for branches (so `claude/nifty-planck-d1xptl` gets a URL), or should the probe be deployed another way?
 
 ## Results
 
-_Filled in when the runs are done._
+Every run appends a row to [`spikes/004-vercel-streaming/results.md`](../../spikes/004-vercel-streaming/results.md).
+
+| Run | First tick | Median / max gap | Ending | Verdict |
+|---|---|---|---|---|
+| R1 local, 30 s (`npx tsx src/index.ts`) | 1,076 ms (first byte 85 ms) | 1,000 / 1,002 ms | done at 30.1 s | **streams** |
+| Control: local backend behind a proxy that buffers the whole response, 6 s | 6,089 ms (all 6 ticks at once) | 0 / 0 ms | done | **buffered** — the probe detects buffering |
+| R2 direct (backend preview) | — | — | — | pending previews |
+| R3 via the frontend rewrite | — | — | — | pending previews |
+
+**How to run R2/R3** once the previews exist (backend preview with `STREAM_PROBE_ENABLED=true`), from `mern-backend/`:
+
+```bash
+npm ci --legacy-peer-deps   # once
+for s in 30 90 240; do
+  npx tsx spikes/004-vercel-streaming/probe.ts https://<backend-preview>.vercel.app/api/v1/agent/_stream-probe $s --label R2-direct-$s
+  npx tsx spikes/004-vercel-streaming/probe.ts https://<frontend-preview>.vercel.app/api/v1/agent/_stream-probe $s --label R3-rewrite-$s
+done
+```
+
+Commit `spikes/004-vercel-streaming/results.md` (it holds only timings and URLs), or paste it here.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-10 | Approved, with the two open questions deferred. Build the probe route, the probe script and R1 now; R2/R3 wait for the owner | R2/R3 need preview deployments and a network path to `vercel.app` that this session doesn't have |
+| 2026-10-10 | The probe sends an `: open` comment right after the headers | Separates time-to-first-byte (does anything get through?) from time-to-first-tick |
+| 2026-10-10 | Verdict rule in the script: **buffered** when more than 80% of ticks land within 1 s of the last one; **streams** when the first tick is within 3 s and the median gap ≤ 1.5 s | Checked against both a streaming server (R1) and a buffering proxy (control), which it told apart |
+| 2026-10-10 | `STREAM_PROBE_ENABLED` goes through `config.ts` like the other switches; the router reads it when it's built | One place reads the environment; tests pass `streamProbeEnabled` directly |

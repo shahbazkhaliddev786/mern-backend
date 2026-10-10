@@ -29,4 +29,6 @@ export default {
     LANGSMITH_TRACING: process.env.LANGSMITH_TRACING || 'false',
     LANGSMITH_API_KEY: process.env.LANGSMITH_API_KEY || '',
     LANGSMITH_PROJECT: process.env.LANGSMITH_PROJECT || 'aljo-store-agent',
+    // TEMPORARY (spec 004): mounts POST /api/v1/agent/_stream-probe
+    STREAM_PROBE_ENABLED: process.env.STREAM_PROBE_ENABLED || 'false',
 }

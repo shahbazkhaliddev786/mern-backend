@@ -24,6 +24,15 @@ export class CredentialError extends Error {
   }
 }
 
+// Right password, but the email was never verified. A fresh code has been
+// sent, so the client can take the user straight to the verification step.
+export class UnverifiedAccountError extends CredentialError {
+  constructor() {
+    super('Please verify your email first. We sent a new code to your email address.', 403);
+    this.name = 'UnverifiedAccountError';
+  }
+}
+
 const generateOtp = (): string => crypto.randomInt(100000, 1000000).toString();
 const hashOtp = (otp: string): string => crypto.createHash('sha256').update(otp).digest('hex');
 
@@ -111,7 +120,12 @@ export const loginWithPassword = async (email: string, password: string) => {
     throw new Error('Invalid credentials');
   }
 
-  if (!user.isVerified) throw new Error('Please verify your email first');
+  // Without this, a user who left sign-up before entering the code could
+  // never get back: sign-in refused them and sign-up said the email was taken.
+  if (!user.isVerified) {
+    await sendOTP(user.email);
+    throw new UnverifiedAccountError();
+  }
 
   const accessToken = generateAccessToken(user._id.toString());
   const refreshToken = generateRefreshToken();
@@ -226,6 +240,7 @@ export const resetPasswordWithOtp = async (
 
   user.password = newPassword;
   user.refreshTokens = []; // a reset signs out every device
+  user.isVerified = true; // the emailed code proves the address, same as sign-up verification
   await user.save();
 
   return { message: 'Password reset successfully' };

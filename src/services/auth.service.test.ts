@@ -5,9 +5,11 @@ import {
   changeUserPassword,
   confirmUserEmailChange,
   CredentialError,
+  loginWithPassword,
   requestUserEmailChange,
   resetPasswordWithOtp,
   sendOTP,
+  UnverifiedAccountError,
   verifyOTP,
 } from './auth.service';
 
@@ -132,6 +134,34 @@ describe('one-time codes (sign-up and password reset)', () => {
 
     expect(user.password).toBe('New-pass1!');
     expect(user.refreshTokens).toEqual([]);
+  });
+
+  it('marks an unverified account verified after a password reset', async () => {
+    const user = addUser({ isVerified: false });
+    await sendOTP(EMAIL, 'reset');
+
+    await resetPasswordWithOtp(EMAIL, lastCode(), 'New-pass1!');
+
+    expect(user.isVerified).toBe(true);
+  });
+});
+
+describe('loginWithPassword for an unverified account', () => {
+  it('sends a fresh code and asks for verification when the password is right', async () => {
+    addUser({ isVerified: false });
+
+    await expect(loginWithPassword(EMAIL, 'Old-pass1!')).rejects.toBeInstanceOf(UnverifiedAccountError);
+    expect(db.sendOTPEmail).toHaveBeenCalledWith(EMAIL, expect.stringMatching(/^\d{6}$/), 'verify');
+
+    // The new code completes verification and signs the user in.
+    await expect(verifyOTP(EMAIL, lastCode())).resolves.toHaveProperty('accessToken');
+  });
+
+  it('sends nothing when the password is wrong', async () => {
+    addUser({ isVerified: false });
+
+    await expect(loginWithPassword(EMAIL, 'wrong')).rejects.toThrow('Invalid credentials');
+    expect(db.sendOTPEmail).not.toHaveBeenCalled();
   });
 });
 

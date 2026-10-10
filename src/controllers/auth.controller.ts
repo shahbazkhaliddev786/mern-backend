@@ -17,7 +17,8 @@ import {
   changeUserPassword,
   requestUserEmailChange,
   confirmUserEmailChange,
-  CredentialError
+  CredentialError,
+  UnverifiedAccountError
 } from '../services/auth.service.js';
 import cloudinary from '../utils/cloudinary.js';
 import bufferGenerator from '../utils/buffer.generator.js';
@@ -153,10 +154,17 @@ export const verifyOtp = asyncHandler(async (req: Request<{},{},VerifyOtpBody>, 
 export const login = asyncHandler(async (req: Request<{},{},LoginBody>, res: Response) => {
   const { email, password } = req.body;
 
-  const { accessToken, refreshToken, user } = await loginWithPassword(
-    email.toLowerCase().trim(),
-    password
-  );
+  let result;
+  try {
+    result = await loginWithPassword(email.toLowerCase().trim(), password);
+  } catch (error) {
+    // needsVerification tells the client to open the code-entry step.
+    if (error instanceof UnverifiedAccountError) {
+      return apiResponse(res, error.status, 'error', error.message, { needsVerification: true });
+    }
+    throw error;
+  }
+  const { accessToken, refreshToken, user } = result;
 
   if (!user) {
     return apiResponse(res, 403, 'error', 'User not found');

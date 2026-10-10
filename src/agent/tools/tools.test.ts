@@ -11,6 +11,8 @@ const services = vi.hoisted(() => ({
   getMyOrders: vi.fn(),
   getMyOrderById: vi.fn(),
   createOrReuseCheckoutSession: vi.fn(),
+  updateUserProfile: vi.fn(),
+  submitSupportRequest: vi.fn(),
   getUserById: vi.fn(),
   brandNames: [] as { _id: string; name: string }[],
   categoryNames: [] as { _id: string; name: string }[],
@@ -31,7 +33,17 @@ vi.mock('../../services/order.service.js', () => ({
   getMyOrderById: services.getMyOrderById,
   createOrReuseCheckoutSession: services.createOrReuseCheckoutSession,
 }));
-vi.mock('../../services/auth.service.js', () => ({ getUserById: services.getUserById }));
+vi.mock('../../services/auth.service.js', () => ({ getUserById: services.getUserById, updateUserProfile: services.updateUserProfile }));
+vi.mock('../../services/support.service.js', () => {
+  class SupportDeliveryError extends Error {
+    status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.status = status;
+    }
+  }
+  return { submitSupportRequest: services.submitSupportRequest, SupportDeliveryError };
+});
 // Name lookups: find({ name: { $in: [regex] } }).select().lean() against an in-memory list.
 const { nameModel } = vi.hoisted(() => ({
   nameModel: (list: () => { _id: string; name: string }[]) => ({
@@ -103,6 +115,8 @@ describe('tool definitions', () => {
     expect(metadata.update_cart_item).toEqual({ kind: 'write', confirmRequired: false });
     expect(metadata.clear_cart).toEqual({ kind: 'write', confirmRequired: true });
     expect(metadata.place_order).toEqual({ kind: 'write', confirmRequired: true });
+    expect(metadata.update_profile).toEqual({ kind: 'write', confirmRequired: true });
+    expect(metadata.submit_support_request).toEqual({ kind: 'write', confirmRequired: true });
   });
 });
 
@@ -416,5 +430,68 @@ describe('place_order', () => {
     services.getCart.mockResolvedValue(cart);
     services.getMyOrders.mockResolvedValue([]);
     expect(await summarizeConfirmation(A, { name: 'place_order', args: {} })).toMatch(/no shipping address/);
+  });
+});
+
+describe('update_profile', () => {
+  const props = (name: string) => Object.keys((z.toJSONSchema(toolNamed(A, name).schema as z.ZodType) as { properties?: object }).properties ?? {});
+
+  it('changes only the name, for the closure\'s user, trimmed', async () => {
+    services.updateUserProfile.mockResolvedValue({ id: A.userId, name: 'Jane Doe', email: 'jane@example.com' });
+    expect(await call(A, 'update_profile', { name: '  Jane Doe ' })).toEqual({ name: 'Jane Doe' });
+    expect(services.updateUserProfile).toHaveBeenCalledWith(A.userId, 'Jane Doe');
+  });
+
+  it('has no email, password or picture field, and enforces 2-50 characters', async () => {
+    expect(props('update_profile')).toEqual(['name']);
+    await expect(toolNamed(A, 'update_profile').invoke({ name: 'J' })).rejects.toThrow();
+    await expect(toolNamed(A, 'update_profile').invoke({ name: 'x'.repeat(51) })).rejects.toThrow();
+    expect(services.updateUserProfile).not.toHaveBeenCalled();
+  });
+
+  it('summarizes the change from the current name without writing', async () => {
+    services.getUserById.mockResolvedValue({ name: 'Jane', email: 'jane@example.com' });
+    expect(await summarizeConfirmation(A, { name: 'update_profile', args: { name: 'Jane Doe' } })).toBe('Change your name from "Jane" to "Jane Doe"?');
+    expect(await summarizeConfirmation(A, { name: 'update_profile', args: { name: 'Jane' } })).toBe('Your name is already "Jane". Save it anyway?');
+    expect(services.updateUserProfile).not.toHaveBeenCalled();
+  });
+});
+
+describe('submit_support_request', () => {
+  const request = { subject: 'Late order', message: "My order hasn't arrived after two weeks." };
+  const props = () => Object.keys((z.toJSONSchema(toolNamed(A, 'submit_support_request').schema as z.ZodType) as { properties?: object }).properties ?? {});
+
+  beforeEach(() => services.getUserById.mockResolvedValue({ name: 'Jane Doe', email: 'jane@example.com' }));
+
+  it('sends from the session\'s name and email with source agent', async () => {
+    services.submitSupportRequest.mockResolvedValue(undefined);
+    expect(await call(A, 'submit_support_request', request)).toEqual({ sent: true });
+    expect(services.submitSupportRequest).toHaveBeenCalledWith({ name: 'Jane Doe', email: 'jane@example.com', ...request, userId: A.userId, source: 'agent' });
+  });
+
+  it('has no sender fields, and ignores any the model adds', async () => {
+    expect(props().sort()).toEqual(['message', 'subject']);
+    services.submitSupportRequest.mockResolvedValue(undefined);
+    await call(A, 'submit_support_request', { ...request, name: 'CEO', email: 'ceo@aljo.store' });
+    expect(services.submitSupportRequest).toHaveBeenCalledWith(expect.objectContaining({ name: 'Jane Doe', email: 'jane@example.com' }));
+  });
+
+  it('enforces the contact form\'s subject and message bounds', async () => {
+    await expect(toolNamed(A, 'submit_support_request').invoke({ subject: 'Hi', message: request.message })).rejects.toThrow();
+    await expect(toolNamed(A, 'submit_support_request').invoke({ subject: request.subject, message: 'short' })).rejects.toThrow();
+    expect(services.submitSupportRequest).not.toHaveBeenCalled();
+  });
+
+  it('turns a delivery failure into its plain message', async () => {
+    const { SupportDeliveryError } = await import('../../services/support.service.js');
+    services.submitSupportRequest.mockRejectedValue(new SupportDeliveryError('Support requests are temporarily unavailable. Please try again later.', 503));
+    expect(await call(A, 'submit_support_request', request)).toEqual({ error: 'Support requests are temporarily unavailable. Please try again later.' });
+  });
+
+  it('summarizes sender, subject and a shortened message without sending', async () => {
+    const long = { subject: 'Late order', message: 'x'.repeat(200) };
+    const summary = await summarizeConfirmation(A, { name: 'submit_support_request', args: long });
+    expect(summary).toBe(`Send this to Aljo Store support as Jane Doe (jane@example.com)? Subject: "Late order" — "${'x'.repeat(120)}…"`);
+    expect(services.submitSupportRequest).not.toHaveBeenCalled();
   });
 });

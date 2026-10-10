@@ -7,16 +7,19 @@ import { MemorySaver } from '@langchain/langgraph';
 import mongoose from 'mongoose';
 
 // The real tools need MongoDB; these tests check the endpoint, so stand-in tools are enough.
-const fakeTools = vi.hoisted(() => ({ runs: [] as unknown[], clearRuns: [] as unknown[] }));
+const fakeTools = vi.hoisted(() => ({ runs: [] as unknown[], clearRuns: [] as unknown[], profileRuns: [] as unknown[] }));
 vi.mock('../agent/tools/index.js', async () => {
   const { recordingTool } = await import('../agent/test-utils');
   const search = recordingTool('search_products', { results: [{ name: 'Trail Runner', price: 45 }] });
   const clear = recordingTool('clear_cart', { items: [], itemsCount: 0 }, { kind: 'write', confirmRequired: true });
   fakeTools.runs = search.runs;
+  const profile = recordingTool('update_profile', { name: 'Jane Doe' }, { kind: 'write', confirmRequired: true });
   fakeTools.clearRuns = clear.runs;
+  fakeTools.profileRuns = profile.runs;
   return {
-    buildToolsForRequest: () => [search.tool, clear.tool],
-    summarizeConfirmation: async () => 'Remove all 2 items ($90.00) from your cart?',
+    buildToolsForRequest: () => [search.tool, clear.tool, profile.tool],
+    summarizeConfirmation: async (_ctx: unknown, call: { name: string }) =>
+      call.name === 'update_profile' ? 'Change your name from "Jane" to "Jane Doe"?' : 'Remove all 2 items ($90.00) from your cart?',
   };
 });
 
@@ -76,6 +79,7 @@ beforeEach(() => {
   claim = async (interruptId: string) => (claimed.has(interruptId) ? false : (claimed.add(interruptId), true));
   fakeTools.runs.length = 0;
   fakeTools.clearRuns.length = 0;
+  fakeTools.profileRuns.length = 0;
 });
 
 const post = (url: string, body: unknown, user?: string) =>
@@ -223,6 +227,18 @@ describe('POST /agent/chat — confirmation (spec 008)', () => {
     const confirmed = await readEvents(await resume(threadId, interruptId, true));
     expect(confirmed.map((e) => e.event)).toEqual(['tool_start', 'tool_end', 'token', 'done']);
     expect(fakeTools.clearRuns).toHaveLength(1);
+  });
+
+  it('update_profile pauses with its summary and runs once on confirm (spec 011)', async () => {
+    model = new ScriptedChatModel([toolCall('update_profile', { name: 'Jane Doe' }), new AIMessage('Done, you are Jane Doe now.')]);
+    const first = await readEvents(await post(withTestAuth, { message: 'call me Jane Doe' }, 'u1'));
+    const confirm = first.find((e) => e.event === 'confirm_required')!;
+    expect(confirm.data).toMatchObject({ tool: 'update_profile', summary: 'Change your name from "Jane" to "Jane Doe"?' });
+    expect(fakeTools.profileRuns).toHaveLength(0);
+
+    const done = await readEvents(await resume(first.at(-1)!.data.threadId, confirm.data.interruptId, true));
+    expect(done.map((e) => e.event)).toEqual(['tool_start', 'tool_end', 'token', 'done']);
+    expect(fakeTools.profileRuns).toEqual([{ name: 'Jane Doe' }]);
   });
 
   it('rejects a malformed resume body with 400', async () => {

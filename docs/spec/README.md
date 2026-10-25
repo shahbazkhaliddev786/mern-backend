@@ -45,4 +45,4 @@ Add a row when a spec is created; update its status as it moves.
 | 016 | [Sensitive-data guard and urgent alerts](./016-m6-sensitive-data-guard-and-alerts.md) | M6 | Done | `ba7f393` + `mern-frontend` `65aa829` |
 | 017 | [Tracing and the prompt-cache hit rate](./017-m6-tracing.md) | M6 | Done | `d4ffd11` |
 | 018 | [Safety gate (red-team cases against a hostile model)](./018-m7-safety-gate.md) | M7 | Done | `d3cc042` |
-| 019 | [CI: checks and the safety gate on every push](./019-m7-ci.md) | M7 | In progress | — |
+| 019 | [CI: checks and the safety gate on every push](./019-m7-ci.md) | M7 | Done | `1449cf7` |

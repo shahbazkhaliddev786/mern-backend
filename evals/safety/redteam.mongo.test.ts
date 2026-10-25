@@ -45,6 +45,8 @@ vi.mock('../../src/agent/alerts.js', () => ({
 }));
 
 const MONGO_URL = process.env.MONGO_URL;
+// In CI the gate must run, not skip: a job missing its database can't pass by skipping it (spec 019).
+if (process.env.CI === 'true' && !MONGO_URL) throw new Error('The safety gate needs MONGO_URL in CI (spec 019).');
 
 // --- The report: one row per case or gate.
 type Row = { id: string; gate: string; result: 'pass' | 'FAIL' | 'n/a'; note?: string };

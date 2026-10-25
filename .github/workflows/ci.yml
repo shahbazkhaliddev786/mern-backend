@@ -1,0 +1,116 @@
+# Backend CI (spec 019). `checks` runs on every push: lint, build and every test, with MongoDB and
+# Atlas local as services so the database suites and the safety gate (spec 018) run instead of
+# skipping. `judged-evals` spends real tokens, so it runs weekly or by hand, and only once the
+# API keys are set as repository secrets.
+
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1' # Mondays 03:17 UTC: judged evals only
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      atlas:
+        # Atlas search ($search, $vectorSearch) for the store-knowledge tests; its image has a health check.
+        image: mongodb/mongodb-atlas-local:8.0
+        ports: ['27018:27017']
+    env:
+      MONGO_URL: mongodb://localhost:27017
+      ATLAS_URL: mongodb://localhost:27018/?directConnection=true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Tests (database suites and the safety gate included)
+        run: npm test
+      - name: Safety gate
+        run: npm run eval:safety
+      - name: Safety gate report
+        if: always()
+        run: |
+          if [ -f evals/safety/last-run.md ]; then cat evals/safety/last-run.md >> "$GITHUB_STEP_SUMMARY"; else echo "No safety gate report was written." >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Keep the safety gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-gate-report
+          path: evals/safety/last-run.md
+          if-no-files-found: ignore
+
+  judged-evals:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      atlas:
+        image: mongodb/mongodb-atlas-local:8.0
+        ports: ['27018:27017']
+    env:
+      # The job's own Atlas local: the knowledge is ingested here, never into production.
+      DATABASE_URL: mongodb://localhost:27018/agent_evals?directConnection=true
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+    steps:
+      - name: Check for API keys
+        id: keys
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ] && [ -n "$VOYAGE_API_KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Skipped: no API keys. Set ANTHROPIC_API_KEY and VOYAGE_API_KEY as repository secrets to run the judged evals." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.keys.outputs.present == 'true'
+        uses: actions/checkout@v4
+      - if: steps.keys.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - if: steps.keys.outputs.present == 'true'
+        name: Install
+        run: npm ci
+      - if: steps.keys.outputs.present == 'true'
+        name: Search indexes
+        run: npm run agent:setup
+      - if: steps.keys.outputs.present == 'true'
+        name: Ingest the store knowledge
+        run: npm run agent:ingest
+      - if: steps.keys.outputs.present == 'true'
+        name: Knowledge evals (Opus-judged)
+        run: npm run eval:knowledge 2>&1 | tee eval-output.txt
+      - if: always() && steps.keys.outputs.present == 'true'
+        name: Scores
+        run: |
+          echo '### Knowledge evals' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E 'knowledge eval means|Tests ' eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

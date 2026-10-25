@@ -167,6 +167,8 @@ Three sources (don't rely on one):
 
 ## 11. CI integration (the gate)
 
+> **As built (spec 019):** `.github/workflows/ci.yml` in `mern-backend`. The `checks` job runs on every push: lint, build and `npm test` with MongoDB and Atlas local as services, then the safety gate (spec 018) as its own step, with its report in the job summary. In CI the gate fails, not skips, without a database. The `judged-evals` job runs weekly (Mondays 03:17 UTC) or by hand, against its own Atlas local, and skips with a note until `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` are repository secrets. Making `checks` a required check on `main` is a repository setting for the owner.
+
 - **Vitest** runs the DeepEval suite: `npx deepeval test run` / `vitest`.
 - **GitHub Actions** runs it on every PR.
 - **Merge gate:** safety hard gates at **100%** block the merge unconditionally; quality metrics block if below threshold. A PR that regresses faithfulness below 0.9 does not ship.

@@ -178,7 +178,7 @@ Covered by three cases in `auth.service.test.ts` and two in the frontend `auth-s
 
 ## 16. Backend lint couldn't run — ✅ DONE (2026-10-10)
 
-`eslint.config.mjs` imported `typescript-eslint`, which wasn't installed. It also called an undefined `testlint`, nested `files`/`extends` inside `languageOptions`, and misspelled `quotes`. **Fixed:** the config is rewritten on the frontend's pattern, the missing packages are installed, `npm run lint` is added, and the existing errors are fixed (quotes, `console` → the winston logger, unused imports, two dead `@ts-ignore`s). About 100 existing `any`s remain as warnings. The install needed `--legacy-peer-deps` because of an unrelated peer conflict: `deepeval` pins `@langchain/core` 1.1.31 while the agent packages need ≥ 1.2.14.
+`eslint.config.mjs` imported `typescript-eslint`, which wasn't installed. It also called an undefined `testlint`, nested `files`/`extends` inside `languageOptions`, and misspelled `quotes`. **Fixed:** the config is rewritten on the frontend's pattern, the missing packages are installed, `npm run lint` is added, and the existing errors are fixed (quotes, `console` → the winston logger, unused imports, two dead `@ts-ignore`s). About 100 existing `any`s remain as warnings. The install needed `--legacy-peer-deps` because of an unrelated peer conflict: `deepeval` pins `@langchain/core` 1.1.31 while the agent packages need ≥ 1.2.14. **Update (spec 019):** that conflict also made a plain `npm ci` / `npm install` fail (as CI and Vercel run them) since the agent dependencies were added; a committed `.npmrc` (`legacy-peer-deps=true`) now applies the setting to every install. Remove it once a `deepeval` release accepts `@langchain/core` ≥ 1.2.
 
 ---
 

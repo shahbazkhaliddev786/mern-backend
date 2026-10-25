@@ -6,7 +6,7 @@
 | **Milestone** | M7 — Evals & launch gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-12 |
 | **Updated** | 2026-10-25 |
-| **Closed by** | — |
+| **Closed by** | `d3cc042` |
 | **Repo** | `mern-backend` only |
 
 ## Goal

@@ -4,3 +4,5 @@ dist
 .env.production
 .env.development
 todos.txt
+# Safety gate report (spec 018), written by each run
+evals/safety/last-run.md

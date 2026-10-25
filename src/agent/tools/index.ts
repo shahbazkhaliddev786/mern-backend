@@ -20,6 +20,7 @@ import { viewCartTool } from './view-cart.js';
 import { viewOrdersTool } from './view-orders.js';
 import { viewProfileTool } from './view-profile.js';
 import { withWriteLimit } from './write-limit.js';
+import { redact } from '../guard.js';
 
 export type { ToolContext } from './types.js';
 
@@ -66,5 +67,7 @@ const CONFIRM_SUMMARIES: Record<string, (ctx: ToolContext, args: Record<string, 
 
 export async function summarizeConfirmation(ctx: ToolContext, call: { name: string; args: Record<string, unknown> }): Promise<string> {
   const summarize = CONFIRM_SUMMARIES[call.name];
-  return summarize ? summarize(ctx, call.args) : `Go ahead with ${call.name.replace(/_/g, ' ')}?`;
+  const summary = summarize ? await summarize(ctx, call.args) : `Go ahead with ${call.name.replace(/_/g, ' ')}?`;
+  // Spec 018: a summary quotes the model's arguments, so it passes the payment boundary too (spec 016).
+  return redact(summary);
 }

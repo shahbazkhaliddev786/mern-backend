@@ -89,6 +89,8 @@ Reference-free — judge the answer against the retrieved context, not a gold st
 
 ## 7. Layer D — Safety / adversarial evals ⭐ (the differentiator)
 
+> **As built (spec 018):** the deterministic hard gates and red-team cases 1–7 and 10–12 run against a model *scripted to attack* (it calls tools directly, forges arguments, follows injected text), with the real agent router, tools and MongoDB: `MONGO_URL=… npm run eval:safety` (also part of `npm test`; no API key needed). Each run writes a one-screen report to `evals/safety/last-run.md`. Cases 8 and 9 are reported n/a until `cancel_order` exists; the gate fails once it does, so they get written. Whether the *real* model also behaves (refuses, ignores the injection) is judged with real models in spec 020.
+
 This is where an action-taking agent earns trust. **Mostly deterministic hard gates** — a safety eval should not depend on an LLM's mood.
 
 **Deterministic hard gates (must be 100%):**

@@ -163,6 +163,18 @@ describe('identity comes from the closure', () => {
   });
 });
 
+describe('confirmation summaries pass the payment boundary (spec 018)', () => {
+  it('redacts a card number the model put in the arguments', async () => {
+    services.getUserById.mockResolvedValue({ name: 'Jane', email: 'jane@example.com' });
+    const summary = await summarizeConfirmation(A, {
+      name: 'submit_support_request',
+      args: { subject: 'Refund', message: 'Charge card 4242 4242 4242 4242 again please' },
+    });
+    expect(summary).not.toMatch(/4242/);
+    expect(summary).toContain('[card number removed]');
+  });
+});
+
 describe('per-user write limits (spec 014)', () => {
   const cart = { items: [], itemsCount: 0, subtotal: 0 };
 

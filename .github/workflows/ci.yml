@@ -1,15 +1,16 @@
 # Backend CI (spec 019). `checks` runs on every push: lint, build and every test, with MongoDB and
 # Atlas local as services so the database suites and the safety gate (spec 018) run instead of
-# skipping. `judged-evals` spends real tokens, so it runs weekly or by hand, only once the API
-# keys are set as repository secrets, and with cheap defaults that a manual run can raise. `online-evals` (spec 021) judges a sample of live turns
-# daily with Haiku, once its own secrets are set.
+# skipping. `judged-evals` spends real tokens, so it runs only when started by hand (no schedule:
+# the API budget is small), once the API keys are repository secrets, with cheap defaults that a
+# manual run can raise. `online-evals` (spec 021) judges a sample of live turns daily with Haiku,
+# once its own secrets are set.
 
 name: CI
 
 on:
   push:
   workflow_dispatch:
-    # The judged evals' options, cheap by default (a small API budget). The weekly run uses the defaults.
+    # The judged evals' options, cheap by default (a small API budget).
     inputs:
       setup:
         description: 'Agent setups to run (cascade is what customers get; both doubles the cost)'
@@ -34,7 +35,6 @@ on:
         type: boolean
         default: false
   schedule:
-    - cron: '17 3 * * 1' # Mondays 03:17 UTC: judged evals
     - cron: '23 5 * * *' # Daily 05:23 UTC: online evals
 
 permissions:
@@ -92,7 +92,7 @@ jobs:
           if-no-files-found: ignore
 
   judged-evals:
-    if: github.event.schedule == '17 3 * * 1' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
@@ -106,7 +106,7 @@ jobs:
       MONGO_URL: mongodb://localhost:27018/?directConnection=true
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
-      # The run's options; a scheduled run has no inputs, so it takes the same cheap defaults.
+      # The run's options, with the same cheap defaults if an input is left empty.
       EVAL_SETUP: ${{ inputs.setup || 'cascade' }}
       EVAL_CASES: ${{ inputs.cases || 'smoke' }}
       EVAL_JUDGE: ${{ inputs.judge || 'sonnet' }}

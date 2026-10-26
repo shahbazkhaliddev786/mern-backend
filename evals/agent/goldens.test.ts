@@ -3,7 +3,7 @@
 
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { StructuredToolInterface } from '@langchain/core/tools';
-import { CATEGORIES, CATEGORY_COUNTS, loadCatalog, loadGoldens, resolveGolden, type Golden } from './goldens';
+import { CATEGORIES, CATEGORY_COUNTS, loadCatalog, loadGoldens, resolveGolden, selectCases, SMOKE_PER_CATEGORY, type Golden } from './goldens';
 import { argsMatch, completed, CONFIRM_REQUIRED_TOOLS, costOf, escalationPrecision, percentile, scoreCase, verdict, type CaseResult, type CaseRun } from './score';
 
 const goldens = loadGoldens();
@@ -205,5 +205,35 @@ describe('the report', () => {
     expect(report).toContain('$0.0030 per completed task');
     expect(report).toContain('**Not run (token budget reached):** details-1');
     expect(report).toMatch(/## Verdict\n\n\*\*cascade\*\* — No setup meets every threshold/);
+  });
+});
+
+describe('cost controls for real runs', () => {
+  it('selects all applicable cases, a smoke set of two per category, or named ids', () => {
+    expect(selectCases(goldens, 'all')).toHaveLength(51);
+    const smoke = selectCases(goldens, 'smoke');
+    expect(smoke).toHaveLength(CATEGORIES.length * SMOKE_PER_CATEGORY);
+    for (const c of CATEGORIES) expect(smoke.filter((g) => g.category === c)).toHaveLength(SMOKE_PER_CATEGORY);
+    expect(selectCases(goldens, 'search-1, reads-2').map((g) => g.id)).toEqual(['search-1', 'reads-2']);
+    expect(() => selectCases(goldens, 'search-1,nope')).toThrow(/unknown: nope/);
+    expect(() => selectCases(goldens, 'redteam-8')).toThrow(); // n/a cases never run
+  });
+
+  it('judges with Sonnet by default (provisional, no cross-check) or Opus with the Sonnet cross-check', async () => {
+    const { judgeFromEnv, setupsFromEnv } = await import('./setups');
+    expect(judgeFromEnv('sonnet')).toEqual({ name: 'sonnet', model: 'claude-sonnet-5-5', provisional: true });
+    expect(judgeFromEnv('opus')).toEqual({ name: 'opus', model: 'claude-opus-5-5', crossModel: 'claude-sonnet-5-5', provisional: false });
+    expect(() => judgeFromEnv('haiku')).toThrow();
+    expect(setupsFromEnv(undefined)).toEqual(['cascade']);
+    expect(setupsFromEnv('both')).toEqual(['cascade', 'opus-only']);
+  });
+
+  it('marks a run judged by Sonnet as provisional in the report', async () => {
+    const { renderReport } = await import('./report');
+    const empty = [{ setup: 'cascade', models: { agent: 'claude-sonnet-5-5' }, results: [], tokens: 0, budget: 300_000, skipped: [] }];
+    const cheap = renderReport(empty, { judge: { name: 'sonnet', model: 'claude-sonnet-5-5', provisional: true }, cases: 'smoke' });
+    expect(cheap).toContain('cases: smoke · judge: claude-sonnet-5-5');
+    expect(cheap).toContain('**Provisional:**');
+    expect(renderReport(empty, { judge: { name: 'opus', model: 'claude-opus-5-5', provisional: false }, cases: 'all' })).not.toContain('Provisional');
   });
 });

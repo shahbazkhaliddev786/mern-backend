@@ -2,7 +2,9 @@
 // tools and MongoDB with real models, for each setup; deterministic checks plus an Opus judge
 // (Sonnet cross-checks turns Opus wrote); then the report and the cascade-vs-Opus verdict.
 // Needs ANTHROPIC_API_KEY and MONGO_URL; skipped without them.
-//   MONGO_URL=… npm run eval:agent        (EVAL_SETUP=cascade|opus-only|both, EVAL_TOKEN_BUDGET)
+//   MONGO_URL=… npm run eval:agent
+// Options (cheap by default, for a small API budget): EVAL_SETUP=cascade|opus-only|both,
+// EVAL_CASES=smoke|all|<ids>, EVAL_JUDGE=sonnet|opus, EVAL_TOKEN_BUDGET (per setup).
 
 import { writeFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -10,12 +12,12 @@ import { AnthropicModel } from 'deepeval/models';
 import { GEval, TaskCompletionMetric } from 'deepeval/metrics';
 import { LLMTestCase, SingleTurnParams } from 'deepeval/test-case';
 import config from '../../src/config/config.js';
-import { AGENT_MODELS, getAgentConfig } from '../../src/agent/config.js';
+import { getAgentConfig } from '../../src/agent/config.js';
 import type { Harness } from '../safety/harness';
-import { loadCatalog, loadGoldens, resolveGolden, type Golden } from './goldens';
+import { loadCatalog, loadGoldens, resolveGolden, selectCases, type Golden } from './goldens';
 import { completed, scoreCase, type CaseResult, type CaseRun } from './score';
 import { renderReport, summarize, type SetupRun } from './report';
-import { buildSetup, setupsFromEnv } from './setups';
+import { buildSetup, judgeFromEnv, setupsFromEnv } from './setups';
 
 vi.mock('../../src/config/stripe.js', async () => (await import('./mocks')).stripe());
 vi.mock('../../src/utils/order.confirmation.email.js', async () => (await import('./mocks')).email());
@@ -26,8 +28,10 @@ vi.mock('../../src/services/product.service.js', async (importOriginal) => (awai
 
 const MONGO_URL = process.env.MONGO_URL;
 const READY = Boolean(config.ANTHROPIC_API_KEY && MONGO_URL);
-// Per setup, agent plus judge (spec 020 decision log): 5M until the first run measures the real figure.
-const BUDGET = Number(process.env.EVAL_TOKEN_BUDGET ?? 5_000_000);
+// Per setup, agent plus judge. Cached tokens count in full, so the cap overstates the cost.
+const BUDGET = Number(process.env.EVAL_TOKEN_BUDGET ?? 300_000);
+const CASES = process.env.EVAL_CASES ?? 'smoke';
+const JUDGE = judgeFromEnv();
 
 /** Pricing set to 1 per token, so a metric's evaluationCost is its token count. */
 const judge = (model: string) => new AnthropicModel({ model, temperature: null, costPerInputToken: 1, costPerOutputToken: 1 });
@@ -70,14 +74,12 @@ describe.skipIf(!READY)('agent suite: judged, both setups', () => {
   beforeAll(async () => {
     const { startHarness } = await import('../safety/harness');
     h = await startHarness(MONGO_URL as string, { dbName: 'agent_eval_judged', catalog: loadCatalog() });
-    goldens = loadGoldens()
-      .filter((g) => !g.na)
-      .map((g) => resolveGolden(g, h.ids));
+    goldens = selectCases(loadGoldens(), CASES).map((g) => resolveGolden(g, h.ids));
   }, 120_000);
 
   afterAll(async () => {
     if (runs.length) {
-      const report = renderReport(runs);
+      const report = renderReport(runs, { judge: JUDGE, cases: CASES });
       writeFileSync('evals/agent/last-run.md', report);
       process.stdout.write(`${report}\n`);
     }
@@ -102,12 +104,12 @@ describe.skipIf(!READY)('agent suite: judged, both setups', () => {
         run.tokens += tokensOf(caseRun);
         const result: CaseResult = { golden, run: caseRun, checks: scoreCase(golden, caseRun) };
         if ((golden.task || golden.rubric) && !caseRun.error) {
-          const primary = await score(golden, caseRun, AGENT_MODELS.escalation);
+          const primary = await score(golden, caseRun, JUDGE.model);
           result.judged = primary.score;
           run.tokens += primary.tokens;
           // Opus judging Opus: cross-check with Sonnet (evals.md §10).
-          if (name === 'opus-only' || caseRun.escalated) {
-            const cross = await score(golden, caseRun, AGENT_MODELS.agent);
+          if (JUDGE.crossModel && (name === 'opus-only' || caseRun.escalated)) {
+            const cross = await score(golden, caseRun, JUDGE.crossModel);
             result.crossJudged = cross.score;
             run.tokens += cross.tokens;
           }

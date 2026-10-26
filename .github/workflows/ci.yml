@@ -1,7 +1,7 @@
 # Backend CI (spec 019). `checks` runs on every push: lint, build and every test, with MongoDB and
 # Atlas local as services so the database suites and the safety gate (spec 018) run instead of
-# skipping. `judged-evals` spends real tokens, so it runs weekly or by hand, and only once the
-# API keys are set as repository secrets. `online-evals` (spec 021) judges a sample of live turns
+# skipping. `judged-evals` spends real tokens, so it runs weekly or by hand, only once the API
+# keys are set as repository secrets, and with cheap defaults that a manual run can raise. `online-evals` (spec 021) judges a sample of live turns
 # daily with Haiku, once its own secrets are set.
 
 name: CI
@@ -9,6 +9,30 @@ name: CI
 on:
   push:
   workflow_dispatch:
+    # The judged evals' options, cheap by default (a small API budget). The weekly run uses the defaults.
+    inputs:
+      setup:
+        description: 'Agent setups to run (cascade is what customers get; both doubles the cost)'
+        type: choice
+        options: [cascade, opus-only, both]
+        default: cascade
+      cases:
+        description: 'Agent cases: smoke (2 per category, 16), all (51) or golden ids, comma-separated'
+        type: string
+        default: smoke
+      judge:
+        description: 'Judge model: sonnet (cheaper, provisional) or opus (for a verdict that counts)'
+        type: choice
+        options: [sonnet, opus]
+        default: sonnet
+      budget:
+        description: 'Token cap per setup, agent plus judge (the run stops and reports at the cap)'
+        type: string
+        default: '300000'
+      knowledge:
+        description: 'Also run the store-knowledge evals (ingest + 35 judged questions)'
+        type: boolean
+        default: false
   schedule:
     - cron: '17 3 * * 1' # Mondays 03:17 UTC: judged evals
     - cron: '23 5 * * *' # Daily 05:23 UTC: online evals
@@ -82,15 +106,22 @@ jobs:
       MONGO_URL: mongodb://localhost:27018/?directConnection=true
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      # The run's options; a scheduled run has no inputs, so it takes the same cheap defaults.
+      EVAL_SETUP: ${{ inputs.setup || 'cascade' }}
+      EVAL_CASES: ${{ inputs.cases || 'smoke' }}
+      EVAL_JUDGE: ${{ inputs.judge || 'sonnet' }}
+      EVAL_TOKEN_BUDGET: ${{ inputs.budget || '300000' }}
+      RUN_KNOWLEDGE: ${{ inputs.knowledge && 'true' || 'false' }}
     steps:
       - name: Check for API keys
         id: keys
         run: |
-          if [ -n "$ANTHROPIC_API_KEY" ] && [ -n "$VOYAGE_API_KEY" ]; then
+          if [ -n "$ANTHROPIC_API_KEY" ] && { [ "$RUN_KNOWLEDGE" != 'true' ] || [ -n "$VOYAGE_API_KEY" ]; }; then
             echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "Options: setup=$EVAL_SETUP · cases=$EVAL_CASES · judge=$EVAL_JUDGE · token cap per setup=$EVAL_TOKEN_BUDGET · knowledge=$RUN_KNOWLEDGE" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "Skipped: no API keys. Set ANTHROPIC_API_KEY and VOYAGE_API_KEY as repository secrets to run the judged evals." >> "$GITHUB_STEP_SUMMARY"
+            echo "Skipped: no API keys. Set ANTHROPIC_API_KEY (and VOYAGE_API_KEY for the knowledge evals) as repository secrets to run the judged evals." >> "$GITHUB_STEP_SUMMARY"
           fi
       - if: steps.keys.outputs.present == 'true'
         uses: actions/checkout@v4
@@ -102,25 +133,27 @@ jobs:
       - if: steps.keys.outputs.present == 'true'
         name: Install
         run: npm ci
-      - if: steps.keys.outputs.present == 'true'
+      - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
         name: Search indexes
         run: npm run agent:setup
-      - if: steps.keys.outputs.present == 'true'
+      - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
         name: Ingest the store knowledge
         run: npm run agent:ingest
-      - if: steps.keys.outputs.present == 'true'
-        name: Knowledge evals (Opus-judged)
+      - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
+        name: Knowledge evals
         run: npm run eval:knowledge 2>&1 | tee eval-output.txt
       - if: always() && steps.keys.outputs.present == 'true'
-        name: Agent evals (both setups, Opus-judged)
+        name: Agent evals
         run: npm run eval:agent
       - if: always() && steps.keys.outputs.present == 'true'
         name: Scores
         run: |
-          echo '### Knowledge evals' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -E 'knowledge eval means|Tests ' eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f eval-output.txt ]; then
+            echo '### Knowledge evals' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -E 'knowledge eval means|Tests ' eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
           if [ -f evals/agent/last-run.md ]; then cat evals/agent/last-run.md >> "$GITHUB_STEP_SUMMARY"; fi
 
   # Spec 021: one batch of the Haiku judge over sampled live turns, against production through a

@@ -12,10 +12,11 @@ import { AnthropicModel } from 'deepeval/models';
 import { ContextualPrecisionMetric, ContextualRecallMetric, ContextualRelevancyMetric, FaithfulnessMetric } from 'deepeval/metrics';
 import { LLMTestCase } from 'deepeval/test-case';
 import config from '../src/config/config.js';
-import { AGENT_MODELS, getAgentConfig } from '../src/agent/config.js';
+import { getAgentConfig } from '../src/agent/config.js';
 import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from '../src/agent/graph.js';
 import { visibleText } from '../src/agent/stream.js';
 import { askStoreKnowledgeTool } from '../src/agent/tools/ask-store-knowledge.js';
+import { judgeFromEnv } from './agent/setups';
 
 interface Golden {
   id: string;
@@ -66,7 +67,8 @@ async function askAgent(golden: Golden): Promise<Turn> {
 
 describe.skipIf(!READY)('store knowledge evals', () => {
   let goldens: Golden[] = [];
-  const judge = () => new AnthropicModel({ model: AGENT_MODELS.escalation, temperature: null });
+  // EVAL_JUDGE: Sonnet by default, for cost; Opus for scores that count (spec 020 decision log).
+  const judge = () => new AnthropicModel({ model: judgeFromEnv().model, temperature: null });
 
   beforeAll(async () => {
     goldens = (JSON.parse(await readFile('evals/knowledge.goldens.json', 'utf8')) as { goldens: Golden[] }).goldens;

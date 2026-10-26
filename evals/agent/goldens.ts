@@ -82,3 +82,20 @@ export function resolveGolden(golden: Golden, ids: SeedIds): Golden {
   };
   return resolve(golden) as Golden;
 }
+
+/** Cases per category in a smoke run: enough to prove the run works, at a fraction of the cost. */
+export const SMOKE_PER_CATEGORY = 2;
+
+/**
+ * Which applicable goldens a run uses (`EVAL_CASES`): `all`, `smoke` (the first two of each
+ * category, in file order) or a comma-separated list of ids.
+ */
+export function selectCases(goldens: Golden[], spec: string): Golden[] {
+  const applicable = goldens.filter((g) => !g.na);
+  if (spec === 'all') return applicable;
+  if (spec === 'smoke') return CATEGORIES.flatMap((c) => applicable.filter((g) => g.category === c).slice(0, SMOKE_PER_CATEGORY));
+  const ids = spec.split(',').map((id) => id.trim()).filter(Boolean);
+  const unknown = ids.filter((id) => !applicable.some((g) => g.id === id));
+  if (!ids.length || unknown.length) throw new Error(`EVAL_CASES must be all, smoke or golden ids; unknown: ${unknown.join(', ') || '(none given)'}`);
+  return applicable.filter((g) => ids.includes(g.id));
+}

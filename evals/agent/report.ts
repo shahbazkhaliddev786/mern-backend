@@ -40,10 +40,12 @@ export function summarize(run: SetupRun): SetupSummary & { categories: ReturnTyp
 
 const n = (value: number | undefined, digits = 2) => (value === undefined ? '—' : value.toFixed(digits));
 
-export function renderReport(runs: SetupRun[]): string {
+export function renderReport(runs: SetupRun[], options?: { judge: { name: string; model: string; provisional: boolean }; cases: string }): string {
   const summaries = runs.map(summarize);
   const v = verdict(summaries);
-  const lines = ['# Agent suite — last run', '', `${new Date().toISOString()} · setups: ${runs.map((r) => r.setup).join(', ')}`, ''];
+  const lines = ['# Agent suite — last run', '', `${new Date().toISOString()} · setups: ${runs.map((r) => r.setup).join(', ')}${options ? ` · cases: ${options.cases} · judge: ${options.judge.model}` : ''}`, ''];
+  if (options?.judge.provisional)
+    lines.push('> **Provisional:** a cheap run. Sonnet judged Sonnet-written turns (self-graded), so the judged scores and the verdict need a run with `judge=opus` and `cases=all` to count.', '');
   runs.forEach((run, i) => {
     const s = summaries[i]!;
     const ms = run.results.map((r) => r.run.ms);

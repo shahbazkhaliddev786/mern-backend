@@ -177,6 +177,18 @@ Three sources (don't rely on one):
 ## 11. CI integration (the gate)
 
 > **As built (spec 019):** `.github/workflows/ci.yml` in `mern-backend`. The `checks` job runs on every push: lint, build and `npm test` with MongoDB and Atlas local as services, then the safety gate (spec 018) as its own step, with its report in the job summary. In CI the gate fails, not skips, without a database. The `judged-evals` job runs weekly (Mondays 03:17 UTC) or by hand, against its own Atlas local, and skips with a note until `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` are repository secrets. Making `checks` a required check on `main` is a repository setting for the owner.
+>
+> **Running the judged evals by hand** (spec 020 decision log): Actions → CI → Run workflow. The inputs are cheap by default, and the weekly run uses the same defaults:
+>
+> | Input | Default | Rough cost |
+> |---|---|---|
+> | `setup` | `cascade` | `both` roughly doubles the cost |
+> | `cases` | `smoke` (16 cases) | about $1, capped. `all` (51) is about $3–5 |
+> | `judge` | `sonnet` | its scores are provisional (self-graded); `opus` costs about twice as much to judge, and a verdict needs it |
+> | `budget` | 300,000 tokens per setup | the run stops and reports at the cap |
+> | `knowledge` | off | adds ingest and the 35 judged knowledge questions |
+>
+> An Anthropic console spend limit is the hard stop.
 
 - **Vitest** runs the DeepEval suite: `npx deepeval test run` / `vitest`.
 - **GitHub Actions** runs it on every PR.

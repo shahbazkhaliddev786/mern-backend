@@ -76,6 +76,8 @@ jobs:
     env:
       # The job's own Atlas local: the knowledge is ingested here, never into production.
       DATABASE_URL: mongodb://localhost:27018/agent_evals?directConnection=true
+      # The agent suite (spec 020) seeds its own database on the same Atlas local.
+      MONGO_URL: mongodb://localhost:27018/?directConnection=true
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
     steps:
@@ -108,9 +110,13 @@ jobs:
         name: Knowledge evals (Opus-judged)
         run: npm run eval:knowledge 2>&1 | tee eval-output.txt
       - if: always() && steps.keys.outputs.present == 'true'
+        name: Agent evals (both setups, Opus-judged)
+        run: npm run eval:agent
+      - if: always() && steps.keys.outputs.present == 'true'
         name: Scores
         run: |
           echo '### Knowledge evals' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           grep -E 'knowledge eval means|Tests ' eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ -f evals/agent/last-run.md ]; then cat evals/agent/last-run.md >> "$GITHUB_STEP_SUMMARY"; fi

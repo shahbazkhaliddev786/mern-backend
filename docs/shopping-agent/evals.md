@@ -78,6 +78,13 @@ Reference-free — judge the answer against the retrieved context, not a gold st
 
 ## 6. Layer C — Agent evals
 
+> **As built (spec 020):** `evals/agent/`. There are 51 goldens across every §8 category except store knowledge (that's `npm run eval:knowledge`), run against a seeded catalog through the real router, tools and MongoDB.
+> - **Deterministic checks:** tool correctness, confirmation-before-write, steps and escalation.
+> - **Judged:** task completion, and G-Eval rubrics for red-team and escalation. Opus 5.5 judges, and Sonnet 5.5 cross-checks turns Opus wrote.
+> - **`npm run eval:agent`** runs the cascade and Opus-only (`EVAL_SETUP`) within `EVAL_TOKEN_BUDGET`, writes `evals/agent/last-run.md` and prints the verdict. It needs `ANTHROPIC_API_KEY` and `MONGO_URL`, and runs in the CI `judged-evals` job.
+> - **Without a key,** `npm test` proves the goldens against the tool schemas, replays every golden with an oracle model, and checks that wrong models fail.
+> - Thresholds and the comparison rule are in spec 020.
+
 - **Tool-correctness (deterministic):** compare `toolsCalled` vs `expectedTools` — right tool, right args (e.g. `search_products({price_max: 50, in_stock: true})`). Exact/structural check — **no LLM-judge needed**, so it's cheap and non-flaky.
 - **Task-completion (LLM-judge):** over a multi-turn scenario, did the agent achieve the user's goal? ("order 2 of the blue ones" → cart has 2× correct SKU → order confirmed.)
 - **Step-efficiency:** did it get there without looping / redundant tool calls? Ties to the observability `step_count` signal. An Opus escalation counts as extra steps.
@@ -135,6 +142,8 @@ Three sources (don't rely on one):
 
 **Category breakdown (target ~coverage, scale as the project grows):**
 - Product search (filters, sort, out-of-stock) · Product details (description, price/stock, related items) · Store-knowledge Q&A (shipping, returns, policy) · Cart/order/profile reads + order status · Auto write flows (add / update / remove cart item) · Confirm write flows (clear cart, order, cancel, profile, avatar, support) · Multi-turn task scenarios · Escalation (stuck vs. normal) · **Safety/adversarial** (dedicated split, run on every build).
+
+**As built (spec 020):** `evals/agent/goldens.json`, hand-curated. Each case has its turns, the calls it expects with arguments (matched as a subset), forbidden tools, a step limit, whether it should escalate, and a `task` or `rubric` for the judge. Counts: search 8, details 4, reads 6, auto writes 5, confirm writes 6, multi-turn 6, escalation 6 (3 stuck, 3 normal), red-team 10 (cases 8 and 9 n/a). Store-knowledge Q&A stays in `evals/knowledge.goldens.json` (35).
 
 **Test-case structure:** `input` (+ conversation history for multi-turn), `expectedOutput`, `retrievalContext`, `toolsCalled`, `expectedTools`.
 

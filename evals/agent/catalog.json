@@ -1,0 +1,19 @@
+{
+  "products": [
+    { "sku": "MUG-BLUE", "name": "Blue Glazed Mug", "description": "A 350 ml stoneware mug with a glossy blue glaze. Dishwasher and microwave safe.", "price": 24, "stock": 30, "category": "Mugs", "brand": "Aljo" },
+    { "sku": "MUG-BLUE-SPK", "name": "Blue Speckled Mug", "description": "A 400 ml speckled blue mug, hand-dipped. Hand wash recommended.", "price": 38, "stock": 12, "category": "Mugs", "brand": "Terra" },
+    { "sku": "MUG-NAVY", "name": "Navy Travel Mug", "description": "A 450 ml insulated steel travel mug in navy blue, with a leak-proof lid.", "price": 55, "stock": 8, "category": "Mugs", "brand": "Terra" },
+    { "sku": "MUG-BLUE-ENM", "name": "Blue Enamel Mug", "description": "A 300 ml enamel camping mug in cobalt blue.", "price": 18, "stock": 0, "category": "Mugs", "brand": "Aljo" },
+    { "sku": "MUG-WHITE", "name": "White Porcelain Mug", "description": "A classic 300 ml white porcelain mug.", "price": 12, "stock": 40, "category": "Mugs", "brand": "Aljo" },
+    { "sku": "BOWL-GREEN", "name": "Green Ceramic Bowl", "description": "A 16 cm ceramic cereal bowl with a sage green glaze.", "price": 32, "stock": 15, "category": "Bowls", "brand": "Terra" },
+    { "sku": "BOWL-WHITE", "name": "White Serving Bowl", "description": "A 28 cm white porcelain serving bowl for salads and pasta.", "price": 64, "stock": 6, "category": "Bowls", "brand": "Aljo" },
+    { "sku": "BOWL-BLUE", "name": "Blue Ramen Bowl", "description": "A deep 20 cm ramen bowl with a blue rim.", "price": 28, "stock": 0, "category": "Bowls", "brand": "Terra" },
+    { "sku": "BOWL-TERRA", "name": "Terracotta Salad Bowl", "description": "A large 32 cm unglazed terracotta salad bowl.", "price": 89, "stock": 3, "category": "Bowls", "brand": "Terra" },
+    { "sku": "PLATE-BLACK", "name": "Black Dinner Plate", "description": "A 27 cm matte black stoneware dinner plate.", "price": 22, "stock": 50, "category": "Plates", "brand": "Aljo" },
+    { "sku": "PLATE-WHITE", "name": "White Dinner Plate", "description": "A 27 cm white porcelain dinner plate.", "price": 19, "stock": 60, "category": "Plates", "brand": "Aljo" },
+    { "sku": "PLATE-BLUE", "name": "Blue Side Plate", "description": "A 20 cm side plate with a hand-painted blue pattern.", "price": 16, "stock": 25, "category": "Plates", "brand": "Terra" },
+    { "sku": "PLATTER-MARBLE", "name": "Marble Serving Platter", "description": "A 40 cm white marble serving platter with brass handles.", "price": 140, "stock": 2, "category": "Plates", "brand": "Aljo" },
+    { "sku": "NAPKIN-LINEN", "name": "Linen Napkin Set", "description": "A set of four natural linen napkins.", "price": 26, "stock": 20, "category": "Home", "brand": "Terra" },
+    { "sku": "COASTER-OAK", "name": "Oak Coaster Set", "description": "A set of six solid oak coasters.", "price": 14, "stock": 0, "category": "Home", "brand": "Aljo" }
+  ]
+}

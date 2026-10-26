@@ -8,7 +8,13 @@ import express, { type RequestHandler } from 'express';
 import { AIMessage } from '@langchain/core/messages';
 import mongoose from 'mongoose';
 
-const { CARD } = vi.hoisted(() => ({ CARD: '4242 4242 4242 4242' }));
+const { CARD } = vi.hoisted(() => {
+  // The auth service checks Cloudinary's settings when it loads; the controllers import it.
+  process.env.CLOUDINARY_CLOUD_NAME ??= 'test';
+  process.env.CLOUDINARY_API_KEY ??= 'test';
+  process.env.CLOUDINARY_API_SECRET ??= 'test';
+  return { CARD: '4242 4242 4242 4242' };
+});
 // Stand-in tools: the endpoint is under test, not the store. The search result carries a card
 // number, which must never reach a stored snapshot.
 vi.mock('../agent/tools/index.js', async () => {

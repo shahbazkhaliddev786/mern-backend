@@ -60,5 +60,6 @@ export function memoryLimiters(points: Partial<Record<AgentBudget, number>> = {}
     writes: memory('writes'),
     support: memory('support'),
     escalations: memory('escalations'),
+    feedback: memory('feedback'),
   };
 }

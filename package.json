@@ -15,6 +15,8 @@
     "agent:ingest": "tsx src/agent/ingest.ts",
     "eval:safety": "vitest run evals/safety",
     "eval:knowledge": "cross-env DEEPEVAL_TELEMETRY_OPT_OUT=YES vitest run --config evals/vitest.config.ts evals/knowledge.eval.ts",
+    "eval:online": "cross-env DEEPEVAL_TELEMETRY_OPT_OUT=YES tsx evals/online/judge.ts",
+    "agent:review": "tsx evals/online/review.ts",
     "eval:agent": "cross-env DEEPEVAL_TELEMETRY_OPT_OUT=YES vitest run --config evals/vitest.config.ts evals/agent",
     "postinstall": "node -e \"require('fs').rmSync('node_modules/deepeval/dist/telemetry.js', { force: true })\""
   },

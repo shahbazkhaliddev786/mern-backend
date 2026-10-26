@@ -9,7 +9,8 @@ export type AgentEvent =
   | { event: 'tool_end'; data: { tool: string; ok: boolean } }
   | { event: 'confirm_required'; data: { interruptId: string; tool: string; summary: string } }
   | { event: 'error'; data: { message: string; retryable: boolean } }
-  | { event: 'done'; data: { threadId: string } };
+  // replyId (spec 021): the turn's reply in the checkpoint, which the customer can rate.
+  | { event: 'done'; data: { threadId: string; replyId?: string } };
 
 export const TOOL_LABELS: Record<string, string> = {
   search_products: 'Searching products…',

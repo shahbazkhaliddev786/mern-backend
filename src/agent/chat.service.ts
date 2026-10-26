@@ -6,6 +6,7 @@ import type { BaseChatModel } from '@langchain/core/language_models/chat_models'
 import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
 import { Command } from '@langchain/langgraph';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
+import config from '../config/config.js';
 import logger from '../utils/logger.js';
 import { claimConfirmation, createCheckpointer } from './checkpointer.js';
 import { PROMPT_VERSION, type AgentConfig } from './config.js';
@@ -13,6 +14,7 @@ import { GIVE_UP_REPLY, REFUSAL_REPLY } from './prompt.js';
 import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMIT } from './graph.js';
 import { consumeBudgets } from './limits.js';
 import { StreamRedactor } from './guard.js';
+import { saveTurnSample, snapshotTurn, type TurnSample } from './online-evals.js';
 import { toAgentEvents, toolStartEvent, visibleText, type AgentEvent } from './stream.js';
 import { buildToolsForRequest, summarizeConfirmation } from './tools/index.js';
 
@@ -23,6 +25,9 @@ export interface ChatDeps {
   createCheckpointer: () => BaseCheckpointSaver;
   /** Returns false when the confirmation was already claimed by another request. */
   claimConfirmation: (interruptId: string, thread: string) => Promise<boolean>;
+  /** Spec 021: the share of finished turns saved for the online judge (0 or missing: none). */
+  sampleRate?: number;
+  saveSample?: (sample: Omit<TurnSample, 'createdAt' | 'expiresAt'>) => Promise<void>;
 }
 
 const defaultDeps: ChatDeps = {
@@ -30,7 +35,19 @@ const defaultDeps: ChatDeps = {
   createEscalationModel: (config) => createEscalationModel(config),
   createCheckpointer: () => createCheckpointer(),
   claimConfirmation: (interruptId, thread) => claimConfirmation(interruptId, thread),
+  sampleRate: Number(config.AGENT_EVAL_SAMPLE_RATE) || 0,
+  saveSample: (sample) => saveTurnSample(sample),
 };
+
+// Turns the customer can rate, and the online judge samples (spec 021): ones that ended in a reply.
+const SAMPLED_OUTCOMES = new Set(['answered', 'gave_up', 'refused']);
+
+/** The turn's reply: the last message, when it's the assistant's and calls no tool. */
+function replyOf(messages: BaseMessage[] | undefined): BaseMessage | undefined {
+  const last = messages?.at(-1);
+  if (!last || last.getType() !== 'ai' || ((last as { tool_calls?: unknown[] }).tool_calls?.length ?? 0) > 0) return undefined;
+  return last;
+}
 
 export interface ChatTurn {
   config: AgentConfig;
@@ -105,17 +122,41 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
     if (turn.signal?.aborted) outcome = 'aborted';
   } finally {
     const state = record.graph && record.thread ? (await record.graph.getState({ configurable: { thread_id: record.thread } })).values : undefined;
-    const lastText = visibleText((state?.messages as BaseMessage[] | undefined)?.at(-1)?.content ?? '');
+    const messages = state?.messages as BaseMessage[] | undefined;
+    const lastText = visibleText(messages?.at(-1)?.content ?? '');
     if (outcome === 'answered' && lastText === GIVE_UP_REPLY) outcome = 'gave_up';
     if (outcome === 'answered' && lastText === REFUSAL_REPLY) outcome = 'refused';
+    const reply = SAMPLED_OUTCOMES.has(outcome) ? replyOf(messages) : undefined;
     span.setAttributes({
       'agent.thread': record.threadId ?? '',
       'agent.outcome': outcome,
       'agent.tool_calls': toolsRun,
       'agent.escalated': state?.escalated === true,
       ...(state?.escalationReason ? { 'agent.escalation_reason': String(state.escalationReason) } : {}),
+      // Spec 021: feedback on this reply can be found by its id in the trace.
+      ...(reply?.id ? { 'agent.reply_id': reply.id } : {}),
     });
     span.end();
+    // Spec 021: a share of finished turns, saved for the online judge. One insert, no model call;
+    // a failure here never affects the customer's turn.
+    if (reply?.id && messages && record.threadId && deps.saveSample && Math.random() < (deps.sampleRate ?? 0)) {
+      const snapshot = snapshotTurn(messages);
+      if (snapshot) {
+        try {
+          await deps.saveSample({
+            user: hash(turn.userId),
+            threadId: record.threadId,
+            replyId: reply.id,
+            promptVersion: PROMPT_VERSION,
+            outcome,
+            escalated: state?.escalated === true,
+            snapshot,
+          });
+        } catch (error) {
+          logger.error('AGENT_SAMPLE_FAILED', { userId: turn.userId, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+    }
   }
 }
 
@@ -124,6 +165,7 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
   const thread = checkpointThreadId(turn.userId, threadId);
   Object.assign(record, { thread, threadId });
   const redactor = new StreamRedactor();
+  let failed = false;
   function* flushText(): Generator<AgentEvent> {
     const text = redactor.flush();
     if (text) yield { event: 'token', data: { text } };
@@ -211,6 +253,7 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
     }
     yield* flushText();
   } catch (error) {
+    failed = true;
     if (turn.signal?.aborted) return; // The customer left; nobody is listening.
     yield* flushText();
     logger.error('AGENT_TURN_FAILED', { userId: turn.userId, threadId, error: error instanceof Error ? error.message : String(error) });
@@ -223,5 +266,7 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
       },
     };
   }
-  yield { event: 'done', data: { threadId } };
+  // Spec 021: name the reply, so the customer can rate it. None after a failure or a pause.
+  const replyId = failed || !record.graph ? undefined : replyOf((await record.graph.getState({ configurable: { thread_id: thread } })).values.messages as BaseMessage[])?.id;
+  yield { event: 'done', data: { threadId, ...(replyId ? { replyId } : {}) } };
 }

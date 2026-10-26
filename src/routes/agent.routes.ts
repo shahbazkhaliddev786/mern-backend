@@ -6,10 +6,13 @@ import type { ChatDeps } from '../agent/chat.service.js';
 // router can be tested without loading every controller.
 import {
   agentAvailable,
+  agentFeedbackLimit,
   agentTurnLimit,
   agentUploadLimit,
   chatRequestSchema,
   createChatHandler,
+  createFeedbackHandler,
+  feedbackRequestSchema,
   nameTraceSpan,
   uploadAvatarHandler,
 } from '../controllers/agent.controller.js';
@@ -27,6 +30,8 @@ export const createAgentRouter = ({
   const router = Router();
   // Per-user limits (spec 014): after auth, and before anything costly runs.
   router.post('/chat', nameTraceSpan, agentAvailable, auth, validateBody(chatRequestSchema), agentTurnLimit, createChatHandler(deps));
+  // Thumbs up/down on a reply (spec 021), with its own small budget.
+  router.post('/feedback', nameTraceSpan, agentAvailable, auth, validateBody(feedbackRequestSchema), agentFeedbackLimit, createFeedbackHandler(deps));
   // Same limits and messages as the Edit Profile upload: one JPEG/PNG/GIF/WEBP, up to 2 MB (spec 012).
   router.post('/uploads/avatar', nameTraceSpan, agentAvailable, auth, agentUploadLimit, uploadSingleFile, uploadAvatarHandler);
   // TEMPORARY (spec 004): only exists when switched on; removed when the spec closes.

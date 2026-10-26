@@ -1,7 +1,8 @@
 # Backend CI (spec 019). `checks` runs on every push: lint, build and every test, with MongoDB and
 # Atlas local as services so the database suites and the safety gate (spec 018) run instead of
 # skipping. `judged-evals` spends real tokens, so it runs weekly or by hand, and only once the
-# API keys are set as repository secrets.
+# API keys are set as repository secrets. `online-evals` (spec 021) judges a sample of live turns
+# daily with Haiku, once its own secrets are set.
 
 name: CI
 
@@ -9,7 +10,8 @@ on:
   push:
   workflow_dispatch:
   schedule:
-    - cron: '17 3 * * 1' # Mondays 03:17 UTC: judged evals only
+    - cron: '17 3 * * 1' # Mondays 03:17 UTC: judged evals
+    - cron: '23 5 * * *' # Daily 05:23 UTC: online evals
 
 permissions:
   contents: read
@@ -66,7 +68,7 @@ jobs:
           if-no-files-found: ignore
 
   judged-evals:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '17 3 * * 1' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
@@ -120,3 +122,36 @@ jobs:
           grep -E 'knowledge eval means|Tests ' eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           if [ -f evals/agent/last-run.md ]; then cat evals/agent/last-run.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+  # Spec 021: one batch of the Haiku judge over sampled live turns, against production through a
+  # database user limited to the agent's online-eval collections. The summary has no customer text.
+  online-evals:
+    if: github.event.schedule == '23 5 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ONLINE_EVALS_DATABASE_URL: ${{ secrets.ONLINE_EVALS_DATABASE_URL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Check for secrets
+        id: secrets
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ] && [ -n "$ONLINE_EVALS_DATABASE_URL" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Skipped: no secrets. Set ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL as repository secrets to run the online evals." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.secrets.outputs.present == 'true'
+        uses: actions/checkout@v4
+      - if: steps.secrets.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - if: steps.secrets.outputs.present == 'true'
+        name: Install
+        run: npm ci
+      - if: steps.secrets.outputs.present == 'true'
+        name: Online evals (Haiku-judged sample of live turns)
+        run: npm run eval:online

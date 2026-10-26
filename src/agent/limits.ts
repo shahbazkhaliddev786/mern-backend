@@ -17,6 +17,8 @@ export const AGENT_LIMITS = {
   support: { keyPrefix: 'agent_support', points: 3, duration: 60 * 60 },
   /** Stuck turns handed to Opus (spec 015). */
   escalations: { keyPrefix: 'agent_escalations', points: 10, duration: 24 * 60 * 60 },
+  /** Thumbs up/down on replies (spec 021). */
+  feedback: { keyPrefix: 'agent_feedback', points: 60, duration: 60 * 60 },
 } as const;
 
 export type AgentBudget = keyof typeof AGENT_LIMITS;
@@ -33,6 +35,7 @@ export function getAgentLimiters(): AgentLimiters {
       writes: mongo('writes'),
       support: mongo('support'),
       escalations: mongo('escalations'),
+      feedback: mongo('feedback'),
     };
   }
   return limiters;

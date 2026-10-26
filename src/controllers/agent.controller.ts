@@ -1,10 +1,13 @@
 import { trace } from '@opentelemetry/api';
+import type { BaseMessage } from '@langchain/core/messages';
 import type { Request, RequestHandler, Response } from 'express';
 import { z } from 'zod';
-import { runChatTurn, type ChatDeps } from '../agent/chat.service.js';
+import { checkpointThreadId, runChatTurn, type ChatDeps } from '../agent/chat.service.js';
+import { createCheckpointer } from '../agent/checkpointer.js';
 import { AgentConfigError, getAgentConfig, type AgentConfig } from '../agent/config.js';
 import { consumeBudgets, LimitStoreError, waitPhrase, type AgentBudget } from '../agent/limits.js';
 import { findSensitive } from '../agent/guard.js';
+import { FEEDBACK_REASONS, saveFeedback, snapshotTurn } from '../agent/online-evals.js';
 import { formatSse } from '../agent/stream.js';
 import { createAvatarUpload, findOwnedUpload, formatSize } from '../services/upload.service.js';
 import { flushTraces } from '../tracing.js';
@@ -24,6 +27,15 @@ export const chatRequestSchema = z.union([
     resume: z.object({ interruptId: z.string().min(1).max(200), approved: z.boolean() }),
   }),
 ]);
+
+// Thumbs up/down on one reply (spec 021). The reason and comment are optional: one tap counts.
+export const feedbackRequestSchema = z.object({
+  threadId: z.uuid(),
+  replyId: z.string().min(1).max(200),
+  rating: z.enum(['up', 'down']),
+  reason: z.enum(FEEDBACK_REASONS).optional(),
+  comment: z.string().trim().max(300).optional(),
+});
 
 const UNAVAILABLE = 'The shopping assistant is not available right now.';
 export const SENSITIVE_MESSAGE =
@@ -65,6 +77,11 @@ const limitRequests =
 export const agentTurnLimit = limitRequests(
   ['turnsBurst', 'turnsDaily'],
   (wait) => `You've sent a lot of messages in a short time. Please wait ${wait} and try again.`,
+);
+
+export const agentFeedbackLimit = limitRequests(
+  ['feedback'],
+  (wait) => `You've sent a lot of feedback in a short time. Please wait ${wait} and try again.`,
 );
 
 export const agentUploadLimit = limitRequests(
@@ -123,6 +140,44 @@ export const createChatHandler =
     // Spec 017: send the turn's spans before ending, since a Vercel function can be frozen after.
     await flushTraces();
     res.end();
+  };
+
+// POST /api/v1/agent/feedback (spec 021): a customer's thumbs up or down on one of their own
+// replies. A thumbs-down keeps a redacted snapshot of the turn for review.
+export const createFeedbackHandler =
+  (deps?: Pick<ChatDeps, 'createCheckpointer'>) =>
+  async (req: Request, res: Response): Promise<void> => {
+    const body = req.body as z.infer<typeof feedbackRequestSchema>;
+    const userId = String((req as Request & { user: { _id: unknown } }).user._id);
+    // Spec 016: the comment is stored, so it gets the same check as a chat message.
+    const sensitive = body.comment ? findSensitive(body.comment) : [];
+    if (sensitive.length > 0) {
+      logger.warn('AGENT_SENSITIVE_INPUT', { userId, kinds: sensitive, source: 'feedback' });
+      return apiResponse(res, 400, 'error', SENSITIVE_MESSAGE);
+    }
+    // Only a reply in the customer's own conversation can be rated: the checkpoint key includes
+    // their id, so someone else's thread reads as empty.
+    const checkpointer = deps ? deps.createCheckpointer() : createCheckpointer();
+    const tuple = await checkpointer.getTuple({ configurable: { thread_id: checkpointThreadId(userId, body.threadId) } });
+    const messages = ((tuple?.checkpoint.channel_values as { messages?: BaseMessage[] } | undefined)?.messages ?? []) as BaseMessage[];
+    const index = messages.findIndex((m) => m.id === body.replyId && m.getType() === 'ai');
+    if (index < 0) return apiResponse(res, 404, 'error', 'That reply could not be found.');
+
+    const snapshot = body.rating === 'down' ? snapshotTurn(messages, index) : null;
+    await saveFeedback({
+      userId,
+      threadId: body.threadId,
+      replyId: body.replyId,
+      rating: body.rating,
+      ...(body.reason ? { reason: body.reason } : {}),
+      ...(body.comment ? { comment: body.comment } : {}),
+      ...(snapshot ? { snapshot } : {}),
+    });
+    // Ids and the rating only; the comment stays in the database.
+    logger.info('AGENT_FEEDBACK', { userId, threadId: body.threadId, replyId: body.replyId, rating: body.rating, reason: body.reason ?? null });
+    trace.getActiveSpan()?.setAttributes({ 'agent.reply_id': body.replyId, 'agent.feedback': body.rating });
+    await flushTraces();
+    apiResponse(res, 200, 'success', 'Thanks for the feedback');
   };
 
 // POST /api/v1/agent/uploads/avatar (spec 012): holds an image from the chat for its owner,

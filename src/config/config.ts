@@ -34,6 +34,8 @@ export default {
     OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '',
     // Optional (spec 016): urgent agent alerts are also POSTed here as { text } (Slack or Make.com)
     ALERT_WEBHOOK_URL: process.env.ALERT_WEBHOOK_URL || '',
+    // Spec 021: the share of finished agent turns saved for the online judge (0 turns it off)
+    AGENT_EVAL_SAMPLE_RATE: process.env.AGENT_EVAL_SAMPLE_RATE || '0.1',
     // TEMPORARY (spec 004): mounts POST /api/v1/agent/_stream-probe
     STREAM_PROBE_ENABLED: process.env.STREAM_PROBE_ENABLED || 'false',
 }

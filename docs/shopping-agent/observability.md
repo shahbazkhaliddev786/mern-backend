@@ -112,6 +112,11 @@ The agent *acts on the user's behalf*. This is where silent, costly failures hid
 
 Offline DeepEval gates CI; **online evals** catch production drift.
 
+> **As built (spec 021):**
+> - **The sampled judge, thumbs, the outcome mix** (the task-success proxy) and **promotion of flagged turns into goldens** (by hand) are in place; see [`evals.md`](./evals.md) §12.
+> - **Linking feedback to its trace:** a turn's span carries `agent.reply_id`, and feedback is stored against the same id.
+> - **Still open:** trending over time and per deploy.
+
 - [ ] **Sampled LLM-judge** on live traffic: faithfulness, answer-relevancy, tool-correctness (sample %, not 100% — cost)
 - [ ] **User feedback** — thumbs up/down, explicit "that's wrong"
 - [ ] **Task-success proxy** — did the conversation end in the intended action (cart/order) vs abandonment?

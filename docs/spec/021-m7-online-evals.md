@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done (the first real judged batch is parked until the keys and secrets are set) |
 | **Milestone** | M7 — Evals & launch gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-26 |
 | **Updated** | 2026-10-26 |
@@ -114,41 +114,41 @@ Catch quality drift in production and feed it back into the goldens. When this s
 ## Tasks
 
 **Backend:**
-- [ ] `replyId` on `done`, and the `agent.reply_id` span attribute
-- [ ] Feedback: the model, route and controller, with tests
-- [ ] Sampling at the end of a turn, with tests
-- [ ] TTL indexes, created by `agent:setup`
-- [ ] `evals/online/judge.ts` and `npm run eval:online`, with keyless tests of the batch logic (selection, cap, flagging, summary) using a stub judge
-- [ ] The `agent:review` CLI, with tests
-- [ ] The CI `online-evals` job
+- [x] `replyId` on `done`, and the `agent.reply_id` span attribute
+- [x] Feedback: the model, route and controller, with tests
+- [x] Sampling at the end of a turn, with tests
+- [x] TTL indexes, created by `agent:setup`
+- [x] `evals/online/judge.ts` and `npm run eval:online`, with keyless tests of the batch logic (selection, cap, flagging, summary) using a stub judge
+- [x] The `agent:review` CLI, with tests
+- [x] The CI `online-evals` job
 
 **Frontend:**
-- [ ] Thumbs and the reason picker on assistant messages
-- [ ] `sendFeedback`, and `replyId` on the `done` type
-- [ ] Tests
+- [x] Thumbs and the reason picker on assistant messages
+- [x] `sendFeedback`, and `replyId` on the `done` type
+- [x] Tests
 
 **Docs:**
-- [ ] `evals.md` §12 and `observability.md` Layer 6 (what's built), `phases.md` §0 and the spec index
+- [x] `evals.md` §12 and `observability.md` Layer 6 (what's built), `phases.md` §0 and the spec index
 
 ## Acceptance criteria
 
-- [ ] **Feedback** — HTTP tests with MongoDB:
+- [x] **Feedback** — HTTP tests with MongoDB:
   - A customer can rate a reply, and changing the vote replaces it.
   - Rating another customer's reply returns 404.
   - A card number in the comment returns 400.
-- [ ] **Sampling** — tests:
+- [x] **Sampling** — tests:
   - At rate 1, every eligible turn is saved, redacted. At rate 0, none is.
   - A failing insert doesn't affect the turn.
-- [ ] **The judge:**
+- [x] **The judge:**
   - `npm run eval:online` skips cleanly without keys.
   - With a stub judge, it scores only unjudged samples, stops at the cap, flags samples below the thresholds, and prints a summary with no customer text — tests.
-- [ ] **Review:** `agent:review` lists flagged turns and resolves one — test.
-- [ ] **Frontend** — tests:
+- [x] **Review:** `agent:review` lists flagged turns and resolves one — test.
+- [x] **Frontend** — tests:
   - Thumbs appear only on finished replies.
   - A vote sends the right body.
   - The reason picker appears on a thumbs-down.
   - A failed send doesn't block the chat.
-- [ ] **Checks:**
+- [x] **Checks:**
   - **Backend:** lint 0 errors, build, `npm test` with and without `MONGO_URL` / `ATLAS_URL`, CI green.
   - **Frontend:** lint, typecheck, tests and build.
 - [ ] **With keys and secrets** (parked until they're set): the first real judged batch, with its summary recorded here.
@@ -164,26 +164,56 @@ Catch quality drift in production and feed it back into the goldens. When this s
 
 ## Open questions
 
-1. **Where the online judge runs.**
-   - **Recommended:** a daily `online-evals` job in the existing GitHub Actions workflow. It uses two repository secrets:
-     - `ONLINE_EVALS_DATABASE_URL`: a MongoDB Atlas user that can only read and write the two agent collections (and read checkpoints, if that's needed)
-     - `ANTHROPIC_API_KEY`
-   - That keeps model calls out of customer requests and needs no new public endpoint.
-   - **Alternatives:**
-     - A Vercel cron endpoint: a new authenticated route, and judging counts against function time.
-     - Running it by hand only.
-2. **Sample rate and cap.**
-   - **Recommended:** 10% of eligible turns (`AGENT_EVAL_SAMPLE_RATE=0.1`), and at most 200 judged per day (`ONLINE_EVAL_DAILY_CAP`).
-   - With Haiku 5.5 at $0.10 / $0.50 per million tokens, three metrics on 200 turns costs a few cents a day.
-   - Both are tuned after launch.
-3. **Retention.**
-   - **Recommended:** unflagged samples and thumbs-up records expire after 30 days, the same as checkpoints.
-   - Flagged samples and thumbs-down snapshots are kept until reviewed, for at most 90 days.
-   - Snapshots are always redacted, and goldens never copy customer text.
-4. **How much detail a thumbs-down asks for.**
-   - **Recommended:** four preset reasons plus an optional comment of up to 300 characters, both optional, so a single tap still counts.
+_None — resolved 2026-10-26, see the decision log._
+
+## Results
+
+**2026-10-26.**
+
+**Backend:**
+- **Files:**
+  - `src/agent/online-evals.ts`: snapshots, the two collections, retention, indexes
+  - the reply id and sampling in `src/agent/chat.service.ts`
+  - `POST /agent/feedback` in `agent.controller.ts` and `agent.routes.ts`
+  - the `feedback` limit in `limits.ts` (60 an hour)
+  - `AGENT_EVAL_SAMPLE_RATE` in `config.ts` (default 0.1)
+  - the indexes in `agent:setup`
+  - `evals/online/` (`online.ts` for the batch, summary and review queue; `judge.ts`; `review.ts`)
+  - the `online-evals` CI job, daily at 05:23 UTC
+- **Tests:**
+  - `online-evals.test.ts` (4)
+  - `routes/agent.feedback.mongo.test.ts` (10): the reply id, the feedback route and sampling over HTTP with MongoDB
+  - `evals/online/online.mongo.test.ts` (5): the batch with a stub judge, and the review queue
+- **Checks:** lint 0 errors; build clean; `npm test` 320 with both databases (301 before, plus 19), and 247 pass and 73 skip without them.
+- **CLIs:**
+  - `npm run eval:online` skips cleanly without a key. Against an empty local database with a dummy key, it prints an empty summary.
+  - `npm run agent:review` lists and resolves against a local database.
+
+**Frontend:**
+- **Files:**
+  - `components/FeedbackBar.tsx`, shown by `MessageList` under each finished reply the server named
+  - `rate` in `useAgentChat`; `sendFeedback` in `agent-chat.service.ts`
+  - `replyId` and `feedback` in the types
+- **Tests:** 5 new chat-panel tests. Lint has no errors (the 3 warnings are in unrelated files); Prettier, typecheck, 74 tests and the build pass.
+
+**Parked until the keys and secrets are set:**
+- the first real judged batch: `npm run eval:online` with `ANTHROPIC_API_KEY` and a database URL, or the CI `online-evals` job started by hand
+- its summary, recorded here
+
+**Owner settings** (in GitHub and MongoDB Atlas):
+- **A restricted Atlas database user**, with read and write access to `agent_turn_samples` and `agent_feedback` only. Its connection string goes in the repository secret `ONLINE_EVALS_DATABASE_URL`.
+- **Run `npm run agent:setup`** against production once, for the new indexes.
+- **The daily schedule** starts once the workflow is on `main`.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-26 | Approved with the defaults: the judge runs daily in GitHub Actions with its own restricted database secret; 10% of turns sampled, at most 200 judged a day; unflagged records kept 30 days, flagged up to 90 until reviewed; four optional reasons plus an optional comment of up to 300 characters | Owner's choice |
+| 2026-10-26 | A reply is identified by its checkpointed message id (`replyId`), and the feedback route checks it against the caller's own checkpoint | Every checkpointed message already has an id, and the checkpoint key includes the user id, so ownership needs no new record |
+| 2026-10-26 | Feedback has its own per-user limit (60 an hour) instead of sharing the chat budget | Rating a reply shouldn't use up the customer's messages |
+| 2026-10-26 | A thumbs-down is sent at once. The reason and comment follow as a second vote that replaces the first | A single tap counts even if the customer never fills in the form |
+| 2026-10-26 | Sampled turns store the user id hashed; feedback stores it in plain | The judge never needs to know who it was. A vote needs the id so the same customer's next vote replaces it |
+| 2026-10-26 | Faithfulness is judged only on turns that called a tool | With no tool results there's nothing for the reply to be faithful to |
+| 2026-10-26 | The flag below 0.7 for tool fit is new; faithfulness (0.9) and relevancy (0.8) follow `evals.md` §2 | §2 sets no bar for the tools fitting the request |
+| 2026-10-26 | The weekly judged-evals job now keys on its own cron, since the workflow has a second (daily) schedule | Each schedule runs only its own job |

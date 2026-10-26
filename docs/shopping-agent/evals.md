@@ -187,6 +187,13 @@ Three sources (don't rely on one):
 
 ## 12. Online evals + feedback loop
 
+> **As built (spec 021):**
+> - **Thumbs:** customers rate replies with thumbs up or down and an optional reason, through `POST /agent/feedback`. A thumbs-down keeps a redacted snapshot of the turn.
+> - **Sampling:** 10% of finished turns (`AGENT_EVAL_SAMPLE_RATE`) are saved, redacted, to `agent_turn_samples`.
+> - **The judge:** `npm run eval:online` runs daily in the CI `online-evals` job, judging up to 200 turns with Haiku 5.5 on faithfulness (≥ 0.9), answer relevancy (≥ 0.8) and tool fit (≥ 0.7). It flags low scorers and prints a summary with no customer text.
+> - **Review:** `npm run agent:review` lists flagged turns and thumbs-downs for review. A problem worth keeping becomes a hand-written golden in `evals/agent/goldens.json`. Customer text never goes into the repository.
+> - **Retention:** unflagged records expire after 30 days; flagged ones are kept up to 90 until reviewed.
+
 - **Sampled** LLM-judge on live traffic (faithfulness, answer-relevancy, tool-correctness) — a %, not 100%, for cost.
 - **User feedback** (thumbs) + task-success proxy from observability.
 - **Loop:** flagged/failing production traces → reviewed → promoted into the golden set → next CI run guards against that regression forever. This is the link back to [`observability.md`](./observability.md) Layer 6.

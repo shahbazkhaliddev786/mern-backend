@@ -46,4 +46,4 @@ Add a row when a spec is created; update its status as it moves.
 | 017 | [Tracing and the prompt-cache hit rate](./017-m6-tracing.md) | M6 | Done | `d4ffd11` |
 | 018 | [Safety gate (red-team cases against a hostile model)](./018-m7-safety-gate.md) | M7 | Done | `d3cc042` |
 | 019 | [CI: checks and the safety gate on every push](./019-m7-ci.md) | M7 | Done | `1449cf7` |
-| 020 | [The judged agent suite and the model comparison](./020-m7-judged-suite.md) | M7 | Done (real runs parked) | — |
+| 020 | [The judged agent suite and the model comparison](./020-m7-judged-suite.md) | M7 | Done (real runs parked) | `ed973db` |

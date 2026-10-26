@@ -6,7 +6,7 @@
 | **Milestone** | M7 — Evals & launch gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-25 |
 | **Updated** | 2026-10-26 |
-| **Closed by** | — |
+| **Closed by** | `ed973db` |
 | **Repo** | `mern-backend` only |
 
 ## Goal
@@ -180,6 +180,7 @@ _None — resolved 2026-10-26, see the decision log._
 | Calls `view_cart` three times (a loop) | escalation |
 | Searches five pages for one question | steps |
 
+- **On GitHub:** CI run #8 on `ed973db` is green in about 1 min 35 s, with `judged-evals` skipped (a push). The database logs show the oracle test seeding its own `agent_eval_oracle` database, so it ran rather than skipped, and the safety gate step still reads 17 pass, 1 n/a.
 - **Proving the suite can fail** (local, not committed): with the gate's pause for `clear_cart` removed, `confirm-1` and `confirm-2` failed the confirmation check, as did the declined-confirmation test.
 - **Parked until the keys are set** (as for spec 013's judged evals):
   - The first real run, of both setups: `MONGO_URL=… npm run eval:agent` with `ANTHROPIC_API_KEY`, or the CI `judged-evals` job started by hand.

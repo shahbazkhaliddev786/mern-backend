@@ -123,7 +123,13 @@ export async function saveFeedback(
     ...(down && vote.snapshot ? { snapshot: vote.snapshot } : {}),
   };
   // A changed vote drops what no longer applies (a thumbs-up keeps no snapshot, reason or comment).
-  const unset: Record<string, ''> = Object.fromEntries((['reason', 'comment', 'snapshot', 'review'] as const).filter((key) => !(key in set)).map((key) => [key, '' as const]));
+  // Spec 022: the same vote again keeps its review decision (and the expiry that came with it);
+  // a changed vote is new information, so it goes back to the queue.
+  const previous = await feedbackRecords(connection).findOne({ userId: vote.userId, replyId: vote.replyId }, { projection: { rating: 1, review: 1 } });
+  const keepReview = previous?.rating === vote.rating && previous.review !== undefined;
+  if (keepReview) delete set.expiresAt;
+  const cleared = keepReview ? (['reason', 'comment', 'snapshot'] as const) : (['reason', 'comment', 'snapshot', 'review'] as const);
+  const unset: Record<string, ''> = Object.fromEntries(cleared.filter((key) => !(key in set)).map((key) => [key, '' as const]));
   await feedbackRecords(connection).updateOne(
     { userId: vote.userId, replyId: vote.replyId },
     { $set: set, $setOnInsert: { createdAt: now }, ...(Object.keys(unset).length ? { $unset: unset } : {}) } as mongoose.mongo.UpdateFilter<Feedback>,

@@ -562,4 +562,23 @@ describe('confirmation gate', () => {
     expect(toolResultsIn(state.messages).map((m) => m.tool_call_id).sort()).toEqual(['c1', 'c2', 'c3']);
     expect((state as { __interrupt__?: unknown }).__interrupt__).toBeUndefined();
   });
+
+  it('runs nothing when a confirm-required action comes with other steps, so the summary always matches the cart (spec 022)', async () => {
+    const mixed = new AIMessage({
+      content: '',
+      tool_calls: [
+        { id: 'm1', name: 'add_to_cart', args: { product_id: 'p1' }, type: 'tool_call' },
+        { id: 'm2', name: 'clear_cart', args: {}, type: 'tool_call' },
+      ],
+    });
+    const { add, clear, start } = setup([mixed, new AIMessage('I will add it first, then ask.')]);
+    const state = await start('add this and then empty my cart');
+    expect(add.runs).toHaveLength(0);
+    expect(clear.runs).toHaveLength(0);
+    expect((state as { __interrupt__?: unknown }).__interrupt__).toBeUndefined();
+    expect(toolResultsIn(state.messages).map((m) => [m.tool_call_id, m.content])).toEqual([
+      ['m1', '{"error":"Not run: do the other steps first, then ask for clear_cart on its own."}'],
+      ['m2', '{"error":"Not run: do the other steps first, then ask for clear_cart on its own."}'],
+    ]);
+  });
 });

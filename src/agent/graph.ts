@@ -315,6 +315,12 @@ export function buildAgentGraph({ model, tools, checkpointer, userId, summarize,
       return new Command({ goto: 'agent', update: { messages: calls.map((call) => answer(call, 'Not run: ask for one of these at a time.')) } });
     }
     const call = confirmable[0]!;
+    // Spec 022: other calls in the same batch would run alongside it after the "yes", so the
+    // summary could describe a cart that's about to change. The confirmation is asked on its own.
+    if (calls.length > 1) {
+      const onItsOwn = `Not run: do the other steps first, then ask for ${call.name} on its own.`;
+      return new Command({ goto: 'agent', update: { messages: calls.map((c) => answer(c, onItsOwn)) } });
+    }
     const summary = summarize ? await summarize(call) : `Go ahead with ${call.name}?`;
     const decision = interrupt<ConfirmRequest, ConfirmDecision>({ tool: call.name, args: call.args, summary });
     const approved = decision?.approved === true;

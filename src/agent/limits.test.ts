@@ -27,6 +27,23 @@ describe('consumeBudgets', () => {
     expect(refused.ok === false && refused.msBeforeNext).toBeGreaterThan(23 * 60 * 60 * 1000);
   });
 
+  it('gives back the points a refused request took from the other budgets (spec 022)', async () => {
+    const limiters = memoryLimiters({ turnsBurst: 1, turnsDaily: 5 });
+    setAgentLimiters(limiters);
+    await consumeBudgets('u1', ['turnsBurst', 'turnsDaily']);
+    for (let i = 0; i < 3; i++) expect(await consumeBudgets('u1', ['turnsBurst', 'turnsDaily'])).toMatchObject({ ok: false, budget: 'turnsBurst' });
+    // Only the one request that went through counts against the day.
+    expect((await limiters.turnsDaily.consume('u1', 0)).consumedPoints).toBe(1);
+  });
+
+  it('a support message refused by its own budget costs no write (spec 022)', async () => {
+    const limiters = memoryLimiters({ support: 1, writes: 10 });
+    setAgentLimiters(limiters);
+    await consumeBudgets('u1', ['writes', 'support']);
+    expect(await consumeBudgets('u1', ['writes', 'support'])).toMatchObject({ ok: false, budget: 'support' });
+    expect((await limiters.writes.consume('u1', 0)).consumedPoints).toBe(1);
+  });
+
   it('logs the user id, budget and wait only', async () => {
     setAgentLimiters(memoryLimiters({ support: 1 }));
     await consumeBudgets('u1', ['support']);
@@ -35,7 +52,7 @@ describe('consumeBudgets', () => {
   });
 
   it('throws LimitStoreError when the store fails', async () => {
-    setAgentLimiters({ ...memoryLimiters(), writes: { consume: async () => Promise.reject(new Error('mongo down')) } });
+    setAgentLimiters({ ...memoryLimiters(), writes: { consume: async () => Promise.reject(new Error('mongo down')), reward: async () => Promise.reject(new Error('mongo down')) } });
     await expect(consumeBudgets('u1', ['writes'])).rejects.toThrow(LimitStoreError);
   });
 });

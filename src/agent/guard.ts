@@ -99,3 +99,15 @@ export class StreamRedactor {
     return rest;
   }
 }
+
+/**
+ * A file name as one plain line for the model (spec 022): no control characters or line breaks,
+ * no quotes or brackets that could close the server's note, spaces collapsed, at most 80 characters.
+ */
+export const cleanFileName = (name: string): string =>
+  name
+    .replace(/[\p{Cc}\u2028\u2029]/gu, ' ')
+    .replace(/["[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'image';

@@ -105,6 +105,17 @@ describe.skipIf(!MONGO_URL)('online evals: the batch and the review queue', () =
     expect(text).not.toContain('Blue Glazed Mug');
   });
 
+  it('a repeat vote keeps the review decision; a changed vote reopens it (spec 022)', async () => {
+    await saveFeedback({ userId: 'u1', threadId: 't', replyId: 'r1', rating: 'down', snapshot: snapshot('meh') });
+    const [flagged] = await listFlagged();
+    await resolveFlagged(flagged!.id, 'promoted', undefined);
+    await saveFeedback({ userId: 'u1', threadId: 't', replyId: 'r1', rating: 'down', snapshot: snapshot('meh') });
+    expect(await feedbackRecords().findOne({ replyId: 'r1' })).toMatchObject({ review: { status: 'promoted' } });
+    expect(await listFlagged()).toEqual([]);
+    await saveFeedback({ userId: 'u1', threadId: 't', replyId: 'r1', rating: 'up' });
+    expect(await feedbackRecords().findOne({ replyId: 'r1' })).not.toHaveProperty('review');
+  });
+
   it('lists flagged turns and thumbs-downs newest first, and resolves one', async () => {
     await sample('bad', new Date(now.getTime() - 2 * DAY), { judgedAt: now, scores: { faithfulness: 0.5 }, flags: ['faithfulness'] });
     await sample('fine', new Date(now.getTime() - 2 * DAY), { judgedAt: now, scores: { faithfulness: 1 }, flags: [] });

@@ -22,7 +22,7 @@ export const AGENT_LIMITS = {
 } as const;
 
 export type AgentBudget = keyof typeof AGENT_LIMITS;
-export type AgentLimiters = Record<AgentBudget, Pick<RateLimiterAbstract, 'consume'>>;
+export type AgentLimiters = Record<AgentBudget, Pick<RateLimiterAbstract, 'consume' | 'reward'>>;
 
 let limiters: AgentLimiters | null = null;
 
@@ -72,6 +72,18 @@ export async function consumeBudgets(userId: string, budgets: AgentBudget[]): Pr
     if (!refused || result.reason.msBeforeNext > refused.msBeforeNext) refused = { budget, msBeforeNext: result.reason.msBeforeNext };
   }
   if (!refused) return { ok: true };
+
+  // Spec 022: a refused request costs nothing, so give back what it took from the other budgets.
+  // Otherwise retrying past the 5-minute limit would drain the daily one.
+  await Promise.all(
+    results.map((result, i) =>
+      result.status === 'fulfilled'
+        ? all[budgets[i] as AgentBudget].reward(userId).catch((error: unknown) => {
+            logger.error('AGENT_LIMIT_ERROR', { userId, budget: budgets[i], error: error instanceof Error ? error.message : String(error) });
+          })
+        : null,
+    ),
+  );
 
   // Ids and timing only: no message content.
   logger.warn('AGENT_RATE_LIMITED', { userId, budget: refused.budget, msBeforeNext: refused.msBeforeNext });

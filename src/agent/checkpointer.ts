@@ -40,3 +40,13 @@ export async function claimConfirmation(interruptId: string, thread: string, con
     throw error;
   }
 }
+
+/**
+ * Gives a claim back when the resumed run failed before the gate step was saved (spec 022), so
+ * the confirmation is still pending and the customer can answer it again. Never called once the
+ * step completed: a claim that ran its action stays, so the action can't run twice.
+ */
+export async function releaseConfirmation(interruptId: string, connection: Connection = mongoose.connection): Promise<void> {
+  if (!connection.db) throw new Error('releaseConfirmation needs an open MongoDB connection');
+  await connection.db.collection<{ _id: string }>(CONFIRM_CLAIMS_COLLECTION).deleteOne({ _id: interruptId });
+}

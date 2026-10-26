@@ -27,13 +27,16 @@ export class UnauthorizedError extends Error {
   }
 }
 
-// Fingerprint of a cart and the address it ships to (spec 010): same items, quantities and
-// address → same hash. Sorted so item order doesn't matter; address fields trimmed and lowercased.
+// Fingerprint of a cart and the address it ships to (spec 010): same items, quantities, prices
+// and address → same hash. The price is part of it (spec 022), so a reused Stripe session never
+// charges an old price. Sorted so item order doesn't matter; address fields trimmed and lowercased.
 export const computeCartHash = (items: { product: unknown; quantity: number }[], shippingAddress: IShippingAddress): string => {
   const lines = items
     .map((item) => {
-      const product = item.product as { _id?: unknown } | string;
-      return `${String(typeof product === 'object' && product?._id ? product._id : product)}:${item.quantity}`;
+      const product = item.product as { _id?: unknown; price?: unknown } | string;
+      const id = typeof product === 'object' && product?._id ? product._id : product;
+      const price = typeof product === 'object' && product ? product.price : undefined;
+      return `${String(id)}:${item.quantity}:${String(price ?? '')}`;
     })
     .sort();
   const address = (['fullName', 'address', 'apartment', 'city', 'state', 'postalCode', 'country', 'phone'] as const).map((field) =>

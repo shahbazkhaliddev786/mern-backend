@@ -85,6 +85,16 @@ describe.skipIf(!MONGO_URL)('createOrReuseCheckoutSession', () => {
     expect(stripe.created).toBe(3);
   });
 
+  it('creates a new session when a price changes, so Stripe never charges an old price (spec 022)', async () => {
+    const first = await orders.createOrReuseCheckoutSession(userId, address);
+    await models.Product.updateOne({ _id: productA }, { $set: { price: 40 } });
+    const repriced = await orders.createOrReuseCheckoutSession(userId, address);
+    await models.Product.updateOne({ _id: productA }, { $set: { price: 45 } });
+    expect(repriced).toMatchObject({ reused: false, total: 132.5 });
+    expect(repriced.url).not.toBe(first.url);
+    expect(stripe.created).toBe(2);
+  });
+
   it('does not reuse a checkout older than 23 hours', async () => {
     const first = await orders.createOrReuseCheckoutSession(userId, address);
     await models.PendingCheckout.updateOne({}, { $set: { createdAt: new Date(Date.now() - 23.5 * 60 * 60 * 1000) } });

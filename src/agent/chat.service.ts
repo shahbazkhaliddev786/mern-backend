@@ -3,12 +3,12 @@
 import crypto from 'node:crypto';
 import { context, trace, type Context } from '@opentelemetry/api';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
-import { HumanMessage, type BaseMessage } from '@langchain/core/messages';
+import { HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { Command } from '@langchain/langgraph';
 import type { BaseCheckpointSaver } from '@langchain/langgraph-checkpoint';
 import config from '../config/config.js';
 import logger from '../utils/logger.js';
-import { claimConfirmation, createCheckpointer } from './checkpointer.js';
+import { claimConfirmation, createCheckpointer, releaseConfirmation } from './checkpointer.js';
 import { PROMPT_VERSION, type AgentConfig } from './config.js';
 import { GIVE_UP_REPLY, REFUSAL_REPLY } from './prompt.js';
 import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMIT } from './graph.js';
@@ -25,6 +25,8 @@ export interface ChatDeps {
   createCheckpointer: () => BaseCheckpointSaver;
   /** Returns false when the confirmation was already claimed by another request. */
   claimConfirmation: (interruptId: string, thread: string) => Promise<boolean>;
+  /** Spec 022: gives a claim back when the resumed run failed before the gate step was saved. */
+  releaseConfirmation?: (interruptId: string) => Promise<void>;
   /** Spec 021: the share of finished turns saved for the online judge (0 or missing: none). */
   sampleRate?: number;
   saveSample?: (sample: Omit<TurnSample, 'createdAt' | 'expiresAt'>) => Promise<void>;
@@ -35,12 +37,29 @@ const defaultDeps: ChatDeps = {
   createEscalationModel: (config) => createEscalationModel(config),
   createCheckpointer: () => createCheckpointer(),
   claimConfirmation: (interruptId, thread) => claimConfirmation(interruptId, thread),
+  releaseConfirmation: (interruptId) => releaseConfirmation(interruptId),
   sampleRate: Number(config.AGENT_EVAL_SAMPLE_RATE) || 0,
   saveSample: (sample) => saveTurnSample(sample),
 };
 
 // Turns the customer can rate, and the online judge samples (spec 021): ones that ended in a reply.
 const SAMPLED_OUTCOMES = new Set(['answered', 'gave_up', 'refused']);
+
+const INTERRUPTED = 'Not run: the previous turn was interrupted.';
+
+/**
+ * Tool calls in the last assistant message that never got a result (spec 022): what a turn
+ * leaves behind when it stops mid-tool, and what the API refuses on the next request.
+ */
+function unansweredToolCalls(messages: BaseMessage[] | undefined): { id?: string; name: string }[] {
+  if (!messages?.length) return [];
+  let index = messages.length - 1;
+  while (index >= 0 && messages[index]!.getType() === 'tool') index -= 1;
+  const asking = messages[index];
+  if (!asking || asking.getType() !== 'ai') return [];
+  const answered = new Set(messages.slice(index + 1).map((m) => (m as ToolMessage).tool_call_id));
+  return ((asking as { tool_calls?: { id?: string; name: string }[] }).tool_calls ?? []).filter((call) => !answered.has(call.id ?? ''));
+}
 
 /** The turn's reply: the last message, when it's the assistant's and calls no tool. */
 function replyOf(messages: BaseMessage[] | undefined): BaseMessage | undefined {
@@ -121,7 +140,13 @@ export async function* runChatTurn(turn: ChatTurn, deps: ChatDeps = defaultDeps)
     }
     if (turn.signal?.aborted) outcome = 'aborted';
   } finally {
-    const state = record.graph && record.thread ? (await record.graph.getState({ configurable: { thread_id: record.thread } })).values : undefined;
+    // Spec 022: a failed read here mustn't hide the turn's own error or leave the span open.
+    let state: Record<string, unknown> | undefined;
+    try {
+      state = record.graph && record.thread ? (await record.graph.getState({ configurable: { thread_id: record.thread } })).values : undefined;
+    } catch (error) {
+      logger.error('AGENT_STATE_READ_FAILED', { userId: turn.userId, error: error instanceof Error ? error.message : String(error) });
+    }
     const messages = state?.messages as BaseMessage[] | undefined;
     const lastText = visibleText(messages?.at(-1)?.content ?? '');
     if (outcome === 'answered' && lastText === GIVE_UP_REPLY) outcome = 'gave_up';
@@ -166,6 +191,19 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
   Object.assign(record, { thread, threadId });
   const redactor = new StreamRedactor();
   let failed = false;
+  let claimed = false;
+  // Spec 022: when a resumed run stops (error or abort) before the gate step is saved, the same
+  // confirmation is still pending; give the claim back so the customer can answer it again.
+  const releaseIfStillPending = async () => {
+    const interruptId = turn.resume?.interruptId;
+    if (!claimed || !interruptId || !record.graph || !deps.releaseConfirmation) return;
+    try {
+      const pending = (await record.graph.getState({ configurable: { thread_id: thread } })).tasks.flatMap((task) => task.interrupts ?? []);
+      if (pending.some((i) => i.id === interruptId)) await deps.releaseConfirmation(interruptId);
+    } catch (error) {
+      logger.error('AGENT_CLAIM_RELEASE_FAILED', { userId: turn.userId, threadId, error: error instanceof Error ? error.message : String(error) });
+    }
+  };
   function* flushText(): Generator<AgentEvent> {
     const text = redactor.flush();
     if (text) yield { event: 'token', data: { text } };
@@ -188,7 +226,8 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
     });
     record.graph = graph;
 
-    const pending = (await graph.getState({ configurable: { thread_id: thread } })).tasks.flatMap((task) => task.interrupts ?? []);
+    const snapshot = await graph.getState({ configurable: { thread_id: thread } });
+    const pending = snapshot.tasks.flatMap((task) => task.interrupts ?? []);
 
     let input: Parameters<typeof graph.stream>[0];
     if (turn.resume) {
@@ -205,6 +244,7 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
         yield { event: 'done', data: { threadId } };
         return;
       }
+      claimed = true;
       input = new Command({ resume: { approved: turn.resume.approved } }) as typeof input;
       // The confirmed tool runs now, so this is when its status chip should appear.
       const tool = (waiting.value as { tool?: string } | undefined)?.tool;
@@ -218,6 +258,17 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
         return;
       }
       // A new message starts a new turn: the step counter, call record and escalation start again.
+      // Spec 022: a turn that stopped mid-tool (the customer left) leaves calls with no result,
+      // which the API rejects from then on. Answer them first, appending only, as the tools step.
+      const unanswered = unansweredToolCalls(snapshot.values.messages as BaseMessage[] | undefined);
+      if (unanswered.length > 0) {
+        await graph.updateState(
+          { configurable: { thread_id: thread } },
+          { messages: unanswered.map((call) => new ToolMessage({ tool_call_id: call.id ?? '', name: call.name, content: JSON.stringify({ error: INTERRUPTED }) })) },
+          'tools',
+        );
+        logger.warn('AGENT_TURN_REPAIRED', { userId: turn.userId, threadId, unanswered: unanswered.length });
+      }
       input = { messages: [new HumanMessage(turn.message ?? '')], toolCalls: 0, escalated: false, turnCalls: [], confirmedCalls: [] };
     }
 
@@ -254,6 +305,7 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
     yield* flushText();
   } catch (error) {
     failed = true;
+    await releaseIfStillPending();
     if (turn.signal?.aborted) return; // The customer left; nobody is listening.
     yield* flushText();
     logger.error('AGENT_TURN_FAILED', { userId: turn.userId, threadId, error: error instanceof Error ? error.message : String(error) });
@@ -267,6 +319,14 @@ async function* runTurn(turn: ChatTurn, deps: ChatDeps, turnContext: Context, re
     };
   }
   // Spec 021: name the reply, so the customer can rate it. None after a failure or a pause.
-  const replyId = failed || !record.graph ? undefined : replyOf((await record.graph.getState({ configurable: { thread_id: thread } })).values.messages as BaseMessage[])?.id;
+  // A failed read only costs the reply id: `done` is always sent, so the response always ends (spec 022).
+  let replyId: string | undefined;
+  if (!failed && record.graph) {
+    try {
+      replyId = replyOf((await record.graph.getState({ configurable: { thread_id: thread } })).values.messages as BaseMessage[])?.id;
+    } catch (error) {
+      logger.error('AGENT_STATE_READ_FAILED', { userId: turn.userId, threadId, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
   yield { event: 'done', data: { threadId, ...(replyId ? { replyId } : {}) } };
 }

@@ -6,7 +6,7 @@ import { checkpointThreadId, runChatTurn, type ChatDeps } from '../agent/chat.se
 import { createCheckpointer } from '../agent/checkpointer.js';
 import { AgentConfigError, getAgentConfig, type AgentConfig } from '../agent/config.js';
 import { consumeBudgets, LimitStoreError, waitPhrase, type AgentBudget } from '../agent/limits.js';
-import { findSensitive } from '../agent/guard.js';
+import { cleanFileName, findSensitive } from '../agent/guard.js';
 import { FEEDBACK_REASONS, saveFeedback, snapshotTurn } from '../agent/online-evals.js';
 import { formatSse } from '../agent/stream.js';
 import { createAvatarUpload, findOwnedUpload, formatSize } from '../services/upload.service.js';
@@ -109,7 +109,7 @@ export const createChatHandler =
     if ('uploadId' in body && body.uploadId) {
       const upload = await findOwnedUpload(userId, body.uploadId);
       if (!upload) return apiResponse(res, 400, 'error', 'That attachment has expired. Please attach it again.');
-      message = `${message}\n\n[The customer attached an image: "${upload.name.replace(/["[\]]/g, '')}", ${formatSize(upload.size)}. upload_id: ${upload.uploadId}]`;
+      message = `${message}\n\n[The customer attached an image: "${cleanFileName(upload.name)}", ${formatSize(upload.size)}. upload_id: ${upload.uploadId}]`;
     }
 
     res.writeHead(200, {
@@ -185,7 +185,14 @@ export const createFeedbackHandler =
 export const uploadAvatarHandler = async (req: Request, res: Response): Promise<void> => {
   const userId = String((req as Request & { user: { _id: unknown } }).user._id);
   if (!req.file) return apiResponse(res, 400, 'error', 'Attach one image in the "profile" field');
-  const upload = await createAvatarUpload(userId, req.file);
+  // Spec 022: the name reaches the model in the attachment note, so it gets the same check as a
+  // message (spec 016) and is stored as one clean line.
+  const sensitive = findSensitive(req.file.originalname);
+  if (sensitive.length > 0) {
+    logger.warn('AGENT_SENSITIVE_INPUT', { userId, kinds: sensitive, source: 'upload_name' });
+    return apiResponse(res, 400, 'error', SENSITIVE_MESSAGE);
+  }
+  const upload = await createAvatarUpload(userId, { ...req.file, originalname: cleanFileName(req.file.originalname) });
   await flushTraces();
   apiResponse(res, 201, 'success', 'Image received', upload);
 };

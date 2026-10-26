@@ -9,6 +9,17 @@ Source documents for the shopping agent's `ask_store_knowledge` tool (milestone 
 - **Unknowns are `TODO(owner)`.** If customers will ask something nobody has answered yet, keep the heading and put `TODO(owner): …` in the body. The ingestion step skips any chunk containing `TODO(owner)`, so the agent never cites a placeholder and falls back to the contact options instead.
 - **Change the site and these files together.** When a policy changes, update the page that shows it and the chunk that states it in the same change. The contact details live in `mern-frontend/src/shared/config/store.ts`.
 
+## Publishing changes
+
+The agent reads these files from the database, not from disk (spec 013). After editing them, run this once per environment, with that environment's `DATABASE_URL`, `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY`:
+
+```bash
+npm run agent:ingest            # adds, updates and removes chunks; unchanged chunks cost nothing
+npm run agent:ingest -- --dry-run   # just lists the chunks and the skipped TODOs, no keys needed
+```
+
+The search indexes come from `npm run agent:setup` (once per database; Atlas only). When a `TODO(owner)` is answered, also add a golden for it in `evals/knowledge.goldens.json`: a test fails until every live chunk has one.
+
 ## Owner checklist
 
 **Blocking.** These chunks are skipped until answered:

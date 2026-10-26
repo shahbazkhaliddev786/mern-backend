@@ -82,6 +82,7 @@ export const getAllProductsService = async ({
   sort = 'newest',
   page = 1,
   limit = 20,
+  inStock,
 }: {
   search?: string;
   category?: string | string[];
@@ -91,6 +92,8 @@ export const getAllProductsService = async ({
   sort?: 'relevance' | 'price_low' | 'price_high' | 'newest' | 'best_selling';
   page?: number;
   limit?: number;
+  // Only products with stock > 0. Used by the agent's search_products; the REST route doesn't pass it.
+  inStock?: boolean;
 } = {}) => {
   // Build query
   const query: any = {};
@@ -126,6 +129,8 @@ export const getAllProductsService = async ({
     if (minPrice !== undefined) query.price.$gte = Number(minPrice);
     if (maxPrice !== undefined) query.price.$lte = Number(maxPrice);
   }
+
+  if (inStock) query.stock = { $gt: 0 };
 
   // Sorting
   let sortOption: any = { createdAt: -1 }; // default: newest

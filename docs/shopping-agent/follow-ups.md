@@ -178,8 +178,18 @@ Covered by three cases in `auth.service.test.ts` and two in the frontend `auth-s
 
 ## 16. Backend lint couldn't run — ✅ DONE (2026-10-10)
 
-`eslint.config.mjs` imported `typescript-eslint`, which wasn't installed. It also called an undefined `testlint`, nested `files`/`extends` inside `languageOptions`, and misspelled `quotes`. **Fixed:** the config is rewritten on the frontend's pattern, the missing packages are installed, `npm run lint` is added, and the existing errors are fixed (quotes, `console` → the winston logger, unused imports, two dead `@ts-ignore`s). About 100 existing `any`s remain as warnings. The install needed `--legacy-peer-deps` because of an unrelated peer conflict: `deepeval` pins `@langchain/core` 1.1.31 while the agent packages need ≥ 1.2.14.
+`eslint.config.mjs` imported `typescript-eslint`, which wasn't installed. It also called an undefined `testlint`, nested `files`/`extends` inside `languageOptions`, and misspelled `quotes`. **Fixed:** the config is rewritten on the frontend's pattern, the missing packages are installed, `npm run lint` is added, and the existing errors are fixed (quotes, `console` → the winston logger, unused imports, two dead `@ts-ignore`s). About 100 existing `any`s remain as warnings. The install needed `--legacy-peer-deps` because of an unrelated peer conflict: `deepeval` pins `@langchain/core` 1.1.31 while the agent packages need ≥ 1.2.14. **Update (spec 019):** that conflict also made a plain `npm ci` / `npm install` fail (as CI and Vercel run them) since the agent dependencies were added; a committed `.npmrc` (`legacy-peer-deps=true`) now applies the setting to every install. Remove it once a `deepeval` release accepts `@langchain/core` ≥ 1.2.
 
 ---
 
-_Items 1–3 resolved 2026-10-07; 5, 8, 9, 14, 15 and 16 resolved 2026-10-10; 4, 6, 7 and 10–13 open. New tech-debt discoveries get appended here._
+## 17. Smaller findings from the agent code review — OPEN (found 2026-10-27)
+
+The review of the agent pull requests (spec 022) also found four low-risk items, deferred there:
+- **Checkout reads more than it needs.** `createOrReuseCheckoutSession` reads the cart twice and looks up the `PendingCheckout` it just created. `place_order`'s address lookup loads the whole order history to use the newest one. Fix: pass the cart into `createCheckoutSession` and return the created id, and use `findOne().sort({ createdAt: -1 })`.
+- **Chat image previews are never released (frontend).** `URL.createObjectURL` runs for every picked file, rejected ones included, and nothing revokes them. Fix: no preview for a rejected file, and revoke on remove, New chat and unmount.
+- **The login-refresh code is copied three times (frontend).** `streamChat`, `uploadAvatar` and `sendFeedback` repeat the send → 401 → refresh → resend block and the error mapping. Fix: one `fetchWithRefresh` helper, reusing `shared/services/api.ts`'s token and message helpers.
+- **A stray "Stopped" after a user switch (frontend).** If the signed-in user changes while a reply streams, the abort lands after the new user's chat loads and marks their last reply stopped.
+
+---
+
+_Items 1–3 resolved 2026-10-07; 5, 8, 9, 14, 15 and 16 resolved 2026-10-10; 4, 6, 7, 10–13 and 17 open. New tech-debt discoveries get appended here._

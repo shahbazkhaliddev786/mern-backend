@@ -26,7 +26,7 @@ The baseline. Don't skip it just because the LLM layer is shinier.
 Every call to Sonnet / Haiku is a span. Capture:
 
 - [ ] **Model + version** (`claude-sonnet-5-5` vs `claude-haiku-5-5` vs `claude-opus-5-5` escalation) — which tier served this, and the **effort level** sent
-- [ ] **Tokens**: input / output / **cache-read / cache-creation** — cache hit-rate is a direct cost lever
+- [x] **Tokens**: input / output / **cache-read / cache-creation** — cache hit-rate is a direct cost lever. *Built (spec 017):* on each model-call span and in an `AGENT_MODEL_USAGE` log line, with `cacheHitRate`
 - [ ] **Cost per call** and **cost per conversation** (tokens × price)
 - [ ] **Latency** + **TTFT** (time-to-first-token) — streaming UX health
 - [ ] **`stop_reason`** — `end_turn` vs `max_tokens` (truncation!) vs `tool_use` vs **`refusal`**
@@ -45,9 +45,9 @@ This is what makes it an *agent*. Observe the **path**, not just endpoints.
 
 - [ ] **Step count per turn** — how many tool calls to resolve one user request
 - [ ] **Loop detection** — same tool + same args called N times = stuck agent
-- [ ] **Query rewrite** (Haiku) — the standalone query sent to retrieval (did the rewrite lose the user's meaning?). There is no separate intent router in v1 ([`reconciliation.md`](./reconciliation.md) Gap 3)
+- [ ] **Knowledge question** — the self-contained question the agent passed to `ask_store_knowledge` (did it lose the user's meaning?). There is no separate query rewrite or intent router in v1 ([`reconciliation.md`](./reconciliation.md) Gap 3, spec 013)
 - [ ] **Tool-selection trace** — which tool the agent chose, and whether it was the *right* one for the intent
-- [ ] **Full trajectory tree** — user msg → agent → tool → result → agent → … → response (one trace, one correlation ID)
+- [x] **Full trajectory tree** — user msg → agent → tool → result → agent → … → response (one trace, one correlation ID). *Built (spec 017):* HTTP → `agent.turn` → model calls and tools → the tool's MongoDB queries; log lines carry the `traceId`
 - [ ] **HITL interrupts** — fired? approved/denied? **time-to-confirm**
 - [ ] **Turns-to-completion** — conversations that never resolve (user gave up)
 - [ ] **Opus escalation** — rate, **trigger reason** (loop / step budget / repeated tool error), whether Opus resolved the turn, and **cost of escalated turns**
@@ -61,7 +61,7 @@ This is what makes it an *agent*. Observe the **path**, not just endpoints.
 
 A grounded answer is only as good as what was retrieved. Instrument the pipeline:
 
-- [ ] **Rewritten query** (post history-aware rewrite) — bad rewrite = bad retrieval
+- [ ] **Search question** (the tool's `question` argument) — a bad question = bad retrieval
 - [ ] **Retrieved chunk IDs + scores** (hybrid: vector + BM25) — what did it actually pull?
 - [ ] **Rerank scores** (Voyage rerank-2.5) before vs after — is rerank reordering meaningfully?
 - [ ] **Empty / low-confidence retrieval rate** — questions the KB can't answer (content gaps!)
@@ -92,7 +92,7 @@ The agent *acts on the user's behalf*. This is where silent, costly failures hid
   - [ ] `cancel_order` rate, rejected cancels (wrong state), refunds issued, and `REFUND_FAILED` errors waiting for an admin retry
 - [ ] **Tool error taxonomy** — out-of-stock, invalid SKU, invalid shipping address (Zod rejection), payment handoff failure, webhook failure, cancel-not-allowed, refund failure, upload rejected, DB error
 - [ ] **Action success ≠ tool success** — did `place_order` return a checkout link for the right cart and address, *and* did the webhook later create exactly one matching paid order?
-- [ ] **Payment boundary guard** — assert/alert if **card-like or credential data ever appears** in a prompt or tool arg (it must never reach the agent)
+- [x] **Payment boundary guard** — assert/alert if **card-like or credential data ever appears** in a prompt or tool arg (it must never reach the agent). *Built in spec 016:* the customer's message is checked in the browser and on the server (refused, never sent to the model); tool arguments with card numbers or credentials aren't run; tool results and the model's text are redacted. Each of the last three raises an `AGENT_ALERT`, as does a confirm-required call reaching the tools without a recorded approval. Alerts are a log line plus an optional POST to `ALERT_WEBHOOK_URL`, with ids only
 
 > 🚩 Alert immediately on: any confirm-required write (`place_order`, `cancel_order`, `clear_cart`, `update_profile`, `upload_avatar`, `submit_support_request`) without a preceding confirmation event, authz-denial spikes, card/credential pattern detected in LLM I/O, more than one order for one Stripe session, an order created other than by a verified webhook.
 
@@ -111,6 +111,11 @@ The agent *acts on the user's behalf*. This is where silent, costly failures hid
 ## Layer 6 — Quality / online evals (is it drifting?)
 
 Offline DeepEval gates CI; **online evals** catch production drift.
+
+> **As built (spec 021):**
+> - **The sampled judge, thumbs, the outcome mix** (the task-success proxy) and **promotion of flagged turns into goldens** (by hand) are in place; see [`evals.md`](./evals.md) §12.
+> - **Linking feedback to its trace:** a turn's span carries `agent.reply_id`, and feedback is stored against the same id.
+> - **Still open:** trending over time and per deploy.
 
 - [ ] **Sampled LLM-judge** on live traffic: faithfulness, answer-relevancy, tool-correctness (sample %, not 100% — cost)
 - [ ] **User feedback** — thumbs up/down, explicit "that's wrong"
@@ -133,6 +138,8 @@ Observability that leadership (and interviewers) care about:
 ---
 
 ## The tracing stack decision: OpenTelemetry vs OpenLLMetry vs LangSmith
+
+> **As built (spec 017):** OpenTelemetry is the backbone. The HTTP and MongoDB spans come from their instrumentations; the `agent.turn`, model-call and per-tool spans come from the agent's own code, so the tree nests properly (request → turn → model call / tool → the tool's queries). Spans carry ids, names, token counts and the cache hit rate, never message text; MongoDB spans keep the query's shape with every value masked. LangSmith gets LangChain's own runs (prompts and steps) plus the request traces over OTLP, linked by `otel_trace_id`; a general backend plugs in through `OTEL_EXPORTER_OTLP_*`. OpenLLMetry was tried and dropped: its LangChain instrumentation produced a flat trace. LangSmith's own OpenTelemetry mode doesn't cover LangGraph. The comparison below is the original reasoning.
 
 **These are not either/or — they compose into layers.**
 

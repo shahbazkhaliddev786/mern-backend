@@ -11,7 +11,8 @@ import {
   adminOrderRouter,
   adminUserRouter,
   adminDashboardRouter,
-  supportRouter
+  supportRouter,
+  agentRouter
 } from '../routes/index.js';
 import orderRouter from '../routes/order.routes.js';
 
@@ -34,6 +35,7 @@ export default async function routesLoader(app: Express) {
   app.use('/api/v1/admin/dashboard', adminDashboardRouter);
   app.use('/api/v1/orders', orderRouter);
   app.use('/api/v1/support', supportRouter);
+  app.use('/api/v1/agent', agentRouter);
 
   // Universal catch-all for unmatched routes (handles root URL and 404s)
   app.use((req, res) => {

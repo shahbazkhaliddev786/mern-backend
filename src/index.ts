@@ -1,3 +1,4 @@
+import './tracing.js';
 import config from './config/config.js';
 import loaders from './loaders/index.js';
 import {connectDB} from './services/index.js';

@@ -87,6 +87,8 @@ A client can POST `tax=0`. This **violates `security.md` §8 (Defense 6 — mone
 
 **Decision:** build only the **narrow, justified** piece now — the history-aware **query rewrite** for `ask_store_knowledge` retrieval. **Defer the separate intent-classification router.** Let the agent model (now Sonnet 5.5) route via native tool-use first. Add the Haiku router only if the golden set shows it beats self-routing on **both** router-accuracy (≥0.95) **and** end-to-end task-completion/latency. Decision made by eval, not by diagram. *Docs updated 2026-10-10: the router is gone from architecture.md's diagram and flow, tech-stack.md, observability.md and evals.md (where router accuracy is now conditional).*
 
+**Update (2026-10-10, spec 013):** the query rewrite is dropped too. The search query is the tool's `question` argument, which the agent model writes with the whole conversation in view, so a Haiku rewrite would add a call and a failure path for little gain. The tool's description asks for a self-contained question; follow-up goldens check it, and the rewrite comes back if recall suffers. Haiku now only writes the chunk context lines at ingestion.
+
 ### Gap 4 — Loop / step-budget thresholds unspecified
 
 **Divergence:** "loop detection" and "step budget exceeded" trigger Opus escalation and an eval gate, but no concrete `N` is given — the number is load-bearing for cost and the escalation-precision ≥0.9 metric.
@@ -137,7 +139,7 @@ DeepEval-TS is beta; **we keep it** (expected to stabilize). The deterministic s
 1. ✅ **Bugs first** — server-side `tax`/`shipping` (Bug A) + shared `shippingSchema` server-side validation (Bug B). Live defects; unblock Gaps 1 & 2. *Done and committed 2026-10-10.*
 2. ✅ **Doc reconciliation pass** — payment language, field names, statuses, COD path. *Done 2026-10-10:* payment-first `place_order` with the checkout-reuse guard (Gaps 1, 5); lowercase statuses and the `user` field (Gap 2); Stripe-only, no COD (§5); no separate router (Gap 3); Mongo product search in v1, Typesense deferred; models moved to Claude Sonnet 5.5 / Haiku 5.5 / Opus 5.5, with their API rules (effort instead of thinking budgets, no forced tool calls, append-only history, refusal handling) in tech-stack.md Layer 3; Gap 18's items.
 3. **`cancel_order` + `refunded` enum** (Gap 6 + Gap 2 enum change), plus the stock-deduction fix (follow-ups §4) and a `/dashboard` cancel button sharing the agent's service. *Next.*
-4. **Agent layer** — tool closures over `ctx.userId`, step/loop config (Gap 4), narrow query-rewrite (Gap 3). Separate router deferred behind an eval.
+4. **Agent layer** — tool closures over `ctx.userId`, step/loop config (Gap 4), no query rewrite or router (Gap 3, spec 013). Separate router deferred behind an eval. Broken into milestones M1–M7 in [`phases.md`](./phases.md).
 
 ---
 

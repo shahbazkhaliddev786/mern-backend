@@ -4,7 +4,7 @@
 >
 > Companion to [`architecture.md`](./architecture.md), [`tech-stack.md`](./tech-stack.md), [`observability.md`](./observability.md), [`security.md`](./security.md).
 >
-> _Note: DeepEval's TypeScript SDK is **beta**. Metric names/imports below are from the current TS docs where confirmed and marked "confirm export" where ported from the Python SDK; fallback is LangSmith evals. API to re-verify at implementation time._
+> _Note: DeepEval's TypeScript SDK is **beta**. Every metric named below is exported by `deepeval/metrics` 0.9.22 (checked in [spec 001](../spec/001-m1-langchain-binding-check.md)); fallback is LangSmith evals. Releases 0.9.20–0.9.22 ship a stale `dist/telemetry.js` that breaks imports until it's deleted — see spec 001's decision log._
 
 ---
 
@@ -46,9 +46,9 @@ Each agent capability → metric(s) → **type** → threshold. *Type matters mo
 **Test-case fields we use:** `input`, `actualOutput`, `expectedOutput`, `retrievalContext` (the chunks from the RAG trace), `toolsCalled`, `expectedTools`.
 
 **Metrics we use:**
-- Retrieval: `ContextualPrecisionMetric`, `ContextualRecallMetric`, `ContextualRelevancyMetric` *(confirm TS export)*
-- Generation: `FaithfulnessMetric` *(confirm TS export)*, `AnswerRelevancyMetric` ✅
-- Agent: `ToolCorrectnessMetric` *(confirm TS export)*, `TaskCompletionMetric` ✅, `StepEfficiencyMetric` ✅
+- Retrieval: `ContextualPrecisionMetric`, `ContextualRecallMetric`, `ContextualRelevancyMetric`
+- Generation: `FaithfulnessMetric`, `AnswerRelevancyMetric` ✅
+- Agent: `ToolCorrectnessMetric`, `TaskCompletionMetric` ✅, `StepEfficiencyMetric` ✅
 - Custom: `GEval` ✅ — LLM-judge with a written rubric, for safety and any subjective criterion
 
 ---
@@ -78,6 +78,13 @@ Reference-free — judge the answer against the retrieved context, not a gold st
 
 ## 6. Layer C — Agent evals
 
+> **As built (spec 020):** `evals/agent/`. There are 51 goldens across every §8 category except store knowledge (that's `npm run eval:knowledge`), run against a seeded catalog through the real router, tools and MongoDB.
+> - **Deterministic checks:** tool correctness, confirmation-before-write, steps and escalation.
+> - **Judged:** task completion, and G-Eval rubrics for red-team and escalation. Opus 5.5 judges, and Sonnet 5.5 cross-checks turns Opus wrote.
+> - **`npm run eval:agent`** runs the cascade and Opus-only (`EVAL_SETUP`) within `EVAL_TOKEN_BUDGET`, writes `evals/agent/last-run.md` and prints the verdict. It needs `ANTHROPIC_API_KEY` and `MONGO_URL`, and runs in the CI `judged-evals` job.
+> - **Without a key,** `npm test` proves the goldens against the tool schemas, replays every golden with an oracle model, and checks that wrong models fail.
+> - Thresholds and the comparison rule are in spec 020.
+
 - **Tool-correctness (deterministic):** compare `toolsCalled` vs `expectedTools` — right tool, right args (e.g. `search_products({price_max: 50, in_stock: true})`). Exact/structural check — **no LLM-judge needed**, so it's cheap and non-flaky.
 - **Task-completion (LLM-judge):** over a multi-turn scenario, did the agent achieve the user's goal? ("order 2 of the blue ones" → cart has 2× correct SKU → order confirmed.)
 - **Step-efficiency:** did it get there without looping / redundant tool calls? Ties to the observability `step_count` signal. An Opus escalation counts as extra steps.
@@ -88,6 +95,8 @@ Reference-free — judge the answer against the retrieved context, not a gold st
 ---
 
 ## 7. Layer D — Safety / adversarial evals ⭐ (the differentiator)
+
+> **As built (spec 018):** the deterministic hard gates and red-team cases 1–7 and 10–12 run against a model *scripted to attack* (it calls tools directly, forges arguments, follows injected text), with the real agent router, tools and MongoDB: `MONGO_URL=… npm run eval:safety` (also part of `npm test`; no API key needed). Each run writes a one-screen report to `evals/safety/last-run.md`. Cases 8 and 9 are reported n/a until `cancel_order` exists; the gate fails once it does, so they get written. Whether the *real* model also behaves (refuses, ignores the injection) is judged with real models in spec 020.
 
 This is where an action-taking agent earns trust. **Mostly deterministic hard gates** — a safety eval should not depend on an LLM's mood.
 
@@ -134,6 +143,8 @@ Three sources (don't rely on one):
 **Category breakdown (target ~coverage, scale as the project grows):**
 - Product search (filters, sort, out-of-stock) · Product details (description, price/stock, related items) · Store-knowledge Q&A (shipping, returns, policy) · Cart/order/profile reads + order status · Auto write flows (add / update / remove cart item) · Confirm write flows (clear cart, order, cancel, profile, avatar, support) · Multi-turn task scenarios · Escalation (stuck vs. normal) · **Safety/adversarial** (dedicated split, run on every build).
 
+**As built (spec 020):** `evals/agent/goldens.json`, hand-curated. Each case has its turns, the calls it expects with arguments (matched as a subset), forbidden tools, a step limit, whether it should escalate, and a `task` or `rubric` for the judge. Counts: search 8, details 4, reads 6, auto writes 5, confirm writes 6, multi-turn 6, escalation 6 (3 stuck, 3 normal), red-team 10 (cases 8 and 9 n/a). Store-knowledge Q&A stays in `evals/knowledge.goldens.json` (35).
+
 **Test-case structure:** `input` (+ conversation history for multi-turn), `expectedOutput`, `retrievalContext`, `toolsCalled`, `expectedTools`.
 
 ---
@@ -165,6 +176,20 @@ Three sources (don't rely on one):
 
 ## 11. CI integration (the gate)
 
+> **As built (spec 019):** `.github/workflows/ci.yml` in `mern-backend`. The `checks` job runs on every push: lint, build and `npm test` with MongoDB and Atlas local as services, then the safety gate (spec 018) as its own step, with its report in the job summary. In CI the gate fails, not skips, without a database. The `judged-evals` job runs only when started by hand (no schedule, to protect a small API budget), against its own Atlas local, and skips with a note until `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` are repository secrets. Making `checks` a required check on `main` is a repository setting for the owner.
+>
+> **Running the judged evals by hand** (spec 020 decision log): Actions → CI → Run workflow. The inputs are cheap by default. Judged evals run only by hand (no schedule):
+>
+> | Input | Default | Rough cost |
+> |---|---|---|
+> | `setup` | `cascade` | `both` roughly doubles the cost |
+> | `cases` | `smoke` (16 cases) | about $1, capped. `all` (51) is about $3–5 |
+> | `judge` | `sonnet` | its scores are provisional (self-graded); `opus` costs about twice as much to judge, and a verdict needs it |
+> | `budget` | 300,000 tokens per setup | the run stops and reports at the cap |
+> | `knowledge` | off | adds ingest and the 35 judged knowledge questions |
+>
+> An Anthropic console spend limit is the hard stop.
+
 - **Vitest** runs the DeepEval suite: `npx deepeval test run` / `vitest`.
 - **GitHub Actions** runs it on every PR.
 - **Merge gate:** safety hard gates at **100%** block the merge unconditionally; quality metrics block if below threshold. A PR that regresses faithfulness below 0.9 does not ship.
@@ -173,6 +198,13 @@ Three sources (don't rely on one):
 ---
 
 ## 12. Online evals + feedback loop
+
+> **As built (spec 021):**
+> - **Thumbs:** customers rate replies with thumbs up or down and an optional reason, through `POST /agent/feedback`. A thumbs-down keeps a redacted snapshot of the turn.
+> - **Sampling:** 10% of finished turns (`AGENT_EVAL_SAMPLE_RATE`) are saved, redacted, to `agent_turn_samples`.
+> - **The judge:** `npm run eval:online` runs daily in the CI `online-evals` job, judging up to 200 turns with Haiku 5.5 on faithfulness (≥ 0.9), answer relevancy (≥ 0.8) and tool fit (≥ 0.7). It flags low scorers and prints a summary with no customer text.
+> - **Review:** `npm run agent:review` lists flagged turns and thumbs-downs for review. A problem worth keeping becomes a hand-written golden in `evals/agent/goldens.json`. Customer text never goes into the repository.
+> - **Retention:** unflagged records expire after 30 days; flagged ones are kept up to 90 until reviewed.
 
 - **Sampled** LLM-judge on live traffic (faithfulness, answer-relevancy, tool-correctness) — a %, not 100%, for cost.
 - **User feedback** (thumbs) + task-success proxy from observability.
@@ -206,9 +238,9 @@ import "deepeval/vitest";
 import { LLMTestCase } from "deepeval/test-case";
 import { EvaluationDataset, Golden } from "deepeval/dataset";
 import {
-  FaithfulnessMetric,          // confirm TS export
+  FaithfulnessMetric,         
   AnswerRelevancyMetric,
-  ContextualPrecisionMetric,   // confirm TS export
+  ContextualPrecisionMetric,  
 } from "deepeval/metrics";
 
 const dataset = new EvaluationDataset({
@@ -239,7 +271,7 @@ it.each(dataset.goldens as Golden[])("store-knowledge RAG #%$", async (golden) =
 
 **Deterministic tool-correctness (no LLM-judge):**
 ```typescript
-import { ToolCorrectnessMetric } from "deepeval/metrics"; // confirm TS export
+import { ToolCorrectnessMetric } from "deepeval/metrics";
 
 it("search extracts correct filters", async () => {
   const { toolsCalled } = await runAgent("show me running shoes under $50 in stock");

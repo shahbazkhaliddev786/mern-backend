@@ -1,0 +1,34 @@
+import { Router, type RequestHandler } from 'express';
+import { authMiddleware } from '../middlewares/auth.middleware.js';
+import { validateBody } from '../middlewares/zod-validate.middleware.js';
+import type { ChatDeps } from '../agent/chat.service.js';
+// Imported directly rather than through controllers/index.js, like support.routes.ts, so the
+// router can be tested without loading every controller.
+import {
+  agentAvailable,
+  agentFeedbackLimit,
+  agentTurnLimit,
+  agentUploadLimit,
+  chatRequestSchema,
+  createChatHandler,
+  createFeedbackHandler,
+  feedbackRequestSchema,
+  nameTraceSpan,
+  uploadAvatarHandler,
+} from '../controllers/agent.controller.js';
+import { uploadSingleFile } from '../middlewares/multer.middleware.js';
+
+// The AI shopping agent (docs/shopping-agent). Signed-in customers only (reconciliation.md Gap 16).
+// `auth` and `deps` are replaceable for tests.
+export const createAgentRouter = ({ deps, auth = authMiddleware }: { deps?: ChatDeps; auth?: RequestHandler } = {}) => {
+  const router = Router();
+  // Per-user limits (spec 014): after auth, and before anything costly runs.
+  router.post('/chat', nameTraceSpan, agentAvailable, auth, validateBody(chatRequestSchema), agentTurnLimit, createChatHandler(deps));
+  // Thumbs up/down on a reply (spec 021), with its own small budget.
+  router.post('/feedback', nameTraceSpan, agentAvailable, auth, validateBody(feedbackRequestSchema), agentFeedbackLimit, createFeedbackHandler(deps));
+  // Same limits and messages as the Edit Profile upload: one JPEG/PNG/GIF/WEBP, up to 2 MB (spec 012).
+  router.post('/uploads/avatar', nameTraceSpan, agentAvailable, auth, agentUploadLimit, uploadSingleFile, uploadAvatarHandler);
+  return router;
+};
+
+export const agentRouter = createAgentRouter();

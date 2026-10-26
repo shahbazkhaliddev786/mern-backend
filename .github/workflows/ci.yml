@@ -1,0 +1,190 @@
+# Backend CI (spec 019). `checks` runs on every push: lint, build and every test, with MongoDB and
+# Atlas local as services so the database suites and the safety gate (spec 018) run instead of
+# skipping. `judged-evals` spends real tokens, so it runs only when started by hand (no schedule:
+# the API budget is small), once the API keys are repository secrets, with cheap defaults that a
+# manual run can raise. `online-evals` (spec 021) judges a sample of live turns daily with Haiku,
+# once its own secrets are set.
+
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+    # The judged evals' options, cheap by default (a small API budget).
+    inputs:
+      setup:
+        description: 'Agent setups to run (cascade is what customers get; both doubles the cost)'
+        type: choice
+        options: [cascade, opus-only, both]
+        default: cascade
+      cases:
+        description: 'Agent cases: smoke (2 per category, 16), all (51) or golden ids, comma-separated'
+        type: string
+        default: smoke
+      judge:
+        description: 'Judge model: sonnet (cheaper, provisional) or opus (for a verdict that counts)'
+        type: choice
+        options: [sonnet, opus]
+        default: sonnet
+      budget:
+        description: 'Token cap per setup, agent plus judge (the run stops and reports at the cap)'
+        type: string
+        default: '300000'
+      knowledge:
+        description: 'Also run the store-knowledge evals (ingest + 35 judged questions)'
+        type: boolean
+        default: false
+  schedule:
+    - cron: '23 5 * * *' # Daily 05:23 UTC: online evals
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      atlas:
+        # Atlas search ($search, $vectorSearch) for the store-knowledge tests; its image has a health check.
+        image: mongodb/mongodb-atlas-local:8.0
+        ports: ['27018:27017']
+    env:
+      MONGO_URL: mongodb://localhost:27017
+      ATLAS_URL: mongodb://localhost:27018/?directConnection=true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Build
+        run: npm run build
+      - name: Tests (database suites and the safety gate included)
+        run: npm test
+      - name: Safety gate
+        run: npm run eval:safety
+      - name: Safety gate report
+        if: always()
+        run: |
+          if [ -f evals/safety/last-run.md ]; then cat evals/safety/last-run.md >> "$GITHUB_STEP_SUMMARY"; else echo "No safety gate report was written." >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Keep the safety gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: safety-gate-report
+          path: evals/safety/last-run.md
+          if-no-files-found: ignore
+
+  judged-evals:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      atlas:
+        image: mongodb/mongodb-atlas-local:8.0
+        ports: ['27018:27017']
+    env:
+      # The job's own Atlas local: the knowledge is ingested here, never into production.
+      DATABASE_URL: mongodb://localhost:27018/agent_evals?directConnection=true
+      # The agent suite (spec 020) seeds its own database on the same Atlas local.
+      MONGO_URL: mongodb://localhost:27018/?directConnection=true
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      # The run's options, with the same cheap defaults if an input is left empty.
+      EVAL_SETUP: ${{ inputs.setup || 'cascade' }}
+      EVAL_CASES: ${{ inputs.cases || 'smoke' }}
+      EVAL_JUDGE: ${{ inputs.judge || 'sonnet' }}
+      EVAL_TOKEN_BUDGET: ${{ inputs.budget || '300000' }}
+      RUN_KNOWLEDGE: ${{ inputs.knowledge && 'true' || 'false' }}
+    steps:
+      - name: Check for API keys
+        id: keys
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ] && { [ "$RUN_KNOWLEDGE" != 'true' ] || [ -n "$VOYAGE_API_KEY" ]; }; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "Options: setup=$EVAL_SETUP · cases=$EVAL_CASES · judge=$EVAL_JUDGE · token cap per setup=$EVAL_TOKEN_BUDGET · knowledge=$RUN_KNOWLEDGE" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Skipped: no API keys. Set ANTHROPIC_API_KEY (and VOYAGE_API_KEY for the knowledge evals) as repository secrets to run the judged evals." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.keys.outputs.present == 'true'
+        uses: actions/checkout@v4
+      - if: steps.keys.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - if: steps.keys.outputs.present == 'true'
+        name: Install
+        run: npm ci
+      - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
+        name: Search indexes
+        run: npm run agent:setup
+      - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
+        name: Ingest the store knowledge
+        run: npm run agent:ingest
+      - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
+        name: Knowledge evals
+        run: npm run eval:knowledge 2>&1 | tee eval-output.txt
+      - if: always() && steps.keys.outputs.present == 'true'
+        name: Agent evals
+        run: npm run eval:agent
+      - if: always() && steps.keys.outputs.present == 'true'
+        name: Scores
+        run: |
+          if [ -f eval-output.txt ]; then
+            echo '### Knowledge evals' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -E 'knowledge eval means|Tests ' eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f evals/agent/last-run.md ]; then cat evals/agent/last-run.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+  # Spec 021: one batch of the Haiku judge over sampled live turns, against production through a
+  # database user limited to the agent's online-eval collections. The summary has no customer text.
+  online-evals:
+    if: github.event.schedule == '23 5 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ONLINE_EVALS_DATABASE_URL: ${{ secrets.ONLINE_EVALS_DATABASE_URL }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - name: Check for secrets
+        id: secrets
+        run: |
+          if [ -n "$ANTHROPIC_API_KEY" ] && [ -n "$ONLINE_EVALS_DATABASE_URL" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Skipped: no secrets. Set ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL as repository secrets to run the online evals." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - if: steps.secrets.outputs.present == 'true'
+        uses: actions/checkout@v4
+      - if: steps.secrets.outputs.present == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - if: steps.secrets.outputs.present == 'true'
+        name: Install
+        run: npm ci
+      - if: steps.secrets.outputs.present == 'true'
+        name: Online evals (Haiku-judged sample of live turns)
+        run: npm run eval:online

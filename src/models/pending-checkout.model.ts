@@ -15,6 +15,10 @@ export interface IPendingCheckout extends Document {
   tax: number;
   shipping: number;
   total: number;
+  // Set from spec 010: lets the agent's place_order reuse an open checkout for the same
+  // cart and address instead of creating a second Stripe session.
+  cartHash?: string;
+  checkoutUrl?: string;
   createdAt: Date;
 }
 
@@ -49,9 +53,14 @@ const PendingCheckoutSchema: Schema = new Schema(
     shipping: { type: Number, default: 0 },
     total: { type: Number, required: true },
 
+    cartHash: { type: String },
+    checkoutUrl: { type: String },
+
     createdAt: { type: Date, default: Date.now, expires: '24h' },
   },
   { timestamps: false }
 );
+
+PendingCheckoutSchema.index({ user: 1, cartHash: 1, createdAt: -1 });
 
 export const PendingCheckout = mongoose.model<IPendingCheckout>('PendingCheckout', PendingCheckoutSchema);

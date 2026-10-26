@@ -4,3 +4,6 @@ dist
 .env.production
 .env.development
 todos.txt
+# Eval reports (specs 018, 020), written by each run
+evals/safety/last-run.md
+evals/agent/last-run.md

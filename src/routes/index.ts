@@ -41,3 +41,7 @@ export {
 export {
     supportRouter
 } from './support.routes.js';
+
+export {
+    agentRouter
+} from './agent.routes.js';

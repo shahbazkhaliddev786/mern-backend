@@ -48,4 +48,4 @@ Add a row when a spec is created; update its status as it moves.
 | 019 | [CI: checks and the safety gate on every push](./019-m7-ci.md) | M7 | Done | `1449cf7` |
 | 020 | [The judged agent suite and the model comparison](./020-m7-judged-suite.md) | M7 | Done (real runs parked) | `ed973db` |
 | 021 | [Online evals and feedback](./021-m7-online-evals.md) | M7 | Done (real runs parked) | `fba693c` (frontend `ce07a15`) |
-| 022 | [Pre-launch fixes from the code review](./022-m7-pre-launch-fixes.md) | M7 | Draft | — |
+| 022 | [Pre-launch fixes from the code review](./022-m7-pre-launch-fixes.md) | M7 | Done | `303866d` (frontend `6b382d9`) |

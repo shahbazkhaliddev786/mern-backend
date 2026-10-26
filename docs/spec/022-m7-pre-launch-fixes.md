@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | Done |
 | **Milestone** | M7 — Evals & launch gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-27 |
 | **Updated** | 2026-10-27 |
-| **Closed by** | — |
+| **Closed by** | backend `303866d`; frontend `6b382d9` |
 | **Repo** | `mern-backend` and `mern-frontend` |
 
 ## Goal
@@ -122,46 +122,46 @@ None of these affect the store while the agent is off, but all must be fixed bef
 ## Tasks
 
 **Backend:**
-- [ ] 1 cart hash with prices
-- [ ] 2 gate rule for mixed batches
-- [ ] 4 name check and cleaning
-- [ ] 5 claim release
-- [ ] 6 history repair
-- [ ] 8 refund of the other budgets
-- [ ] 9 turn end in try/catch
-- [ ] 10 vote keeps its review
-- [ ] 13 probe removed
-- [ ] each with a test that fails before the fix
+- [x] 1 cart hash with prices
+- [x] 2 gate rule for mixed batches
+- [x] 4 name check and cleaning
+- [x] 5 claim release
+- [x] 6 history repair
+- [x] 8 refund of the other budgets
+- [x] 9 turn end in try/catch
+- [x] 10 vote keeps its review
+- [x] 13 probe removed
+- [x] each with a test that fails before the fix
 
 **Frontend:**
-- [ ] 3 link check
-- [ ] 7 retry and reopen rules
-- [ ] 11 single-flight refresh
-- [ ] 12 chat state above the panel
-- [ ] each with a test that fails before the fix
+- [x] 3 link check
+- [x] 7 retry and reopen rules
+- [x] 11 single-flight refresh
+- [x] 12 chat state above the panel
+- [x] each with a test that fails before the fix
 
 **Docs:**
-- [ ] `follow-ups.md` (the 4 deferred items)
-- [ ] the spec index and `phases.md` (launch → 023)
+- [x] `follow-ups.md` (the 4 deferred items)
+- [x] the spec index and `phases.md` (launch → 023)
 
 ## Acceptance criteria
 
 Each item has a test that reproduces the defect first and then passes.
 
-- [ ] **1:** the same cart at a new price creates a new Stripe session; the same cart and price still reuses the link — MongoDB test.
-- [ ] **2:** `add_to_cart` and `place_order` in one batch run nothing and pause nothing; each gets the "on its own" answer — graph test. The safety gate still passes 17 / 1 n/a.
-- [ ] **3:** `/\evil.com`, `//evil.com` and `/%5Cevil.com` render as text; `/products/abc` is still a link — component test.
-- [ ] **4:** a name with a card number gets a 400; a name with newlines is stored and sent as one clean line — HTTP test.
-- [ ] **5:** a resume whose gate step fails can be answered again; a resume that completed still gets "already confirmed" — HTTP test with MongoDB.
-- [ ] **6:** after a run aborted mid-tool, the next message gets an answer, and the model sees a result for every earlier tool call — graph and HTTP test.
-- [ ] **7:** each of (a)–(d) — chat-panel tests.
-- [ ] **8:** a burst-refused request leaves the daily points unchanged; a support-refused request leaves the write points unchanged — limits test.
-- [ ] **9:** a `getState` failure at the end of a turn still sends `done` and ends the response — test.
-- [ ] **10:** the same rating keeps `review`; a new rating clears it — MongoDB test.
-- [ ] **11:** two simultaneous 401s make one refresh call, and both requests succeed — service test.
-- [ ] **12:** closing and reopening the panel mid-reply shows the full reply — chat-panel test.
-- [ ] **13:** the route and setting are gone; the test that covered them is removed with them.
-- [ ] **Checks:**
+- [x] **1:** the same cart at a new price creates a new Stripe session; the same cart and price still reuses the link — MongoDB test.
+- [x] **2:** `add_to_cart` and `place_order` in one batch run nothing and pause nothing; each gets the "on its own" answer — graph test. The safety gate still passes 17 / 1 n/a.
+- [x] **3:** `/\evil.com`, `//evil.com` and `/%5Cevil.com` render as text; `/products/abc` is still a link — component test.
+- [x] **4:** a name with a card number gets a 400; a name with newlines is stored and sent as one clean line — HTTP test.
+- [x] **5:** a resume whose gate step fails can be answered again; a resume that completed still gets "already confirmed" — HTTP test with MongoDB.
+- [x] **6:** after a run aborted mid-tool, the next message gets an answer, and the model sees a result for every earlier tool call — graph and HTTP test.
+- [x] **7:** each of (a)–(d) — chat-panel tests.
+- [x] **8:** a burst-refused request leaves the daily points unchanged; a support-refused request leaves the write points unchanged — limits test.
+- [x] **9:** a `getState` failure at the end of a turn still sends `done` and ends the response — test.
+- [x] **10:** the same rating keeps `review`; a new rating clears it — MongoDB test.
+- [x] **11:** two simultaneous 401s make one refresh call, and both requests succeed — service test.
+- [x] **12:** closing and reopening the panel mid-reply shows the full reply — chat-panel test.
+- [x] **13:** the route and setting are gone; the test that covered them is removed with them.
+- [x] **Checks:**
   - **Backend:** lint 0 errors, build, `npm test` with and without the databases, CI green.
   - **Frontend:** lint, Prettier, typecheck, tests, build.
 
@@ -173,18 +173,47 @@ Each item has a test that reproduces the defect first and then passes.
 
 ## Open questions
 
-1. **Mixed batches with a confirm-required call** (item 2).
-   - **Recommended:** run nothing and tell the model to do the other steps first, then ask on its own. That's simple, matches the existing one-confirmation-at-a-time rule, and the summary is always built from the real cart.
-   - **Alternative:** run the other calls first, then build the summary and pause. Customers would see fewer round trips, but the gate gets more complex.
-2. **A card number or password in an attachment's file name** (item 4).
-   - **Recommended:** refuse the upload with the spec 016 message, so nothing sensitive is stored.
-   - **Alternative:** silently rename the file to "image".
-3. **The temporary streaming test route** (item 13).
-   - **Recommended:** remove it. It did its job in spec 004, and leaving it is an open door if the setting is ever switched on.
-4. **Numbering.**
-   - **Recommended:** these fixes are 022, and launch becomes 023, so the launch spec can require them.
+_None — resolved 2026-10-27, see the decision log._
+
+## Results
+
+**2026-10-27.** Every fix was proven the same way: a test reproduced the defect first, then passed once the fix was in.
+
+**Backend (`303866d`):**
+
+| # | Fix | Test (failed before the fix) |
+|---|---|---|
+| 1 | Prices are part of the cart hash | `checkout-reuse.mongo.test.ts`: a price change makes a new Stripe session |
+| 2 | A mixed batch with a confirm-required call runs nothing | `graph.test.ts`: `add_to_cart` and `clear_cart` together both get "Not run: do the other steps first…" |
+| 4 | File names are checked (400 if sensitive) and cleaned to one line | `agent.routes.test.ts`: a card number in a name, and a name with newlines and a fake note |
+| 5 | The claim is released when a resumed run fails before the gate is saved | `agent.routes.test.ts`: a failed resume can be answered again, a completed one can't; plus `releaseConfirmation` against MongoDB |
+| 6 | Unanswered tool calls get a result before the next message | `agent.routes.test.ts`: without the fix, the model was sent a tool call with no result (`[]` vs `['call_1']`), the request the API rejects |
+| 8 | A refused request gives back the points it took | `limits.test.ts`: burst refusals don't touch the daily points; a support refusal costs no write |
+| 9 | The end of a turn survives a failed state read | `agent.routes.test.ts`: before the fix the connection closed with no `done` ("other side closed") |
+| 10 | The same vote keeps its review; a changed vote reopens it | `evals/online/online.mongo.test.ts` |
+| 13 | The streaming probe is removed: the controller, `STREAM_PROBE_ENABLED` and its tests | `agent.routes.test.ts`: the route answers 404 |
+
+- **Checks:** lint 0 errors (warnings unchanged at 106); build clean; `npm test` 332 with both databases (323 before) and 256 + 76 skipped without them; safety gate 17 pass, 1 n/a.
+
+**Frontend (`6b382d9`):**
+
+| # | Fix | Test (failed before the fix) |
+|---|---|---|
+| 3 | Store links must be same-origin paths, with no backslash and no `%5C` | `[a](/\evil.example)`, `//evil.example`, `/%5Cevil.example` and `/%5cevil.example` render as text |
+| 7 | (a) "Try again" is disabled while busy; (b) not offered once an action ran; (c) the card stays answered after Stop or a drop mid-answer; (d) no dead "Try again" on a confirmation answer | six chat-panel tests |
+| 11 | One shared token refresh | two requests hitting 401 together cause one refresh, and both succeed |
+| 12 | The conversation lives in `ChatLauncher` | close the panel mid-reply, reopen: the full reply is there, and nothing was aborted |
+
+- **Checks:** ESLint 0 errors (the 3 warnings are in unrelated files); Prettier, stylelint, typecheck and build pass; 83 tests (74 before).
+
+**Notes:**
+- **Item 3's real-world risk was lower than the review said.** react-markdown already turns `/\evil.example` into `/%5Cevil.example`, which is an ordinary path on the store's own site. The stricter check is defence in depth.
+- **Item 6's test first failed on how the stream splits text,** not on the defect. The assertion was fixed to check the model's input, and it was re-proven to fail without the fix.
 
 ## Decision log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-10-27 | Approved with the defaults: a mixed batch runs nothing; a sensitive file name is refused; the probe is removed; these fixes are 022 and launch is 023 | Owner's choice |
+| 2026-10-27 | A kept review also keeps its expiry | Otherwise a reviewed record would wait another 90 days |
+| 2026-10-27 | Control characters are matched with `\p{Cc}` | The literal ranges fail ESLint's `no-control-regex`; the Unicode class means the same thing |

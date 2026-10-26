@@ -6,7 +6,7 @@
 | **Milestone** | M7 — Evals & launch gate ([`phases.md`](../shopping-agent/phases.md)) |
 | **Created** | 2026-10-26 |
 | **Updated** | 2026-10-26 |
-| **Closed by** | — |
+| **Closed by** | backend `fba693c` + `826f763`; frontend `ce07a15` |
 | **Repo** | `mern-backend` and `mern-frontend` |
 
 ## Goal
@@ -196,6 +196,11 @@ _None — resolved 2026-10-26, see the decision log._
   - `replyId` and `feedback` in the types
 - **Tests:** 5 new chat-panel tests. Lint has no errors (the 3 warnings are in unrelated files); Prettier, typecheck, 74 tests and the build pass.
 
+**On GitHub:**
+- **Run #11** on `fba693c` was red. The new feedback route test failed to load because CI sets no Cloudinary variables: the test imports the route, which loads the auth service, and that service checks those settings on import. Locally I had exported dummy values, which hid it.
+- **The fix (`826f763`)** gives the test its own defaults, as the safety harness does. It was reproduced locally without the variables first, then shown passing.
+- **Run #13** (on `38fe7dd`, which includes the fix) is green. #12 was cancelled by that newer push.
+
 **Parked until the keys and secrets are set:**
 - the first real judged batch: `npm run eval:online` with `ANTHROPIC_API_KEY` and a database URL, or the CI `online-evals` job started by hand
 - its summary, recorded here
@@ -216,4 +221,5 @@ _None — resolved 2026-10-26, see the decision log._
 | 2026-10-26 | Sampled turns store the user id hashed; feedback stores it in plain | The judge never needs to know who it was. A vote needs the id so the same customer's next vote replaces it |
 | 2026-10-26 | Faithfulness is judged only on turns that called a tool | With no tool results there's nothing for the reply to be faithful to |
 | 2026-10-26 | The flag below 0.7 for tool fit is new; faithfulness (0.9) and relevancy (0.8) follow `evals.md` §2 | §2 sets no bar for the tools fitting the request |
+| 2026-10-26 | The feedback route test sets its own Cloudinary defaults | CI run #11 failed without them; the test runs anywhere now |
 | 2026-10-26 | The weekly judged-evals job now keys on its own cron, since the workflow has a second (daily) schedule | Each schedule runs only its own job |

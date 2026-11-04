@@ -213,6 +213,14 @@ export async function startHarness(mongoUrl: string, options: HarnessOptions = {
       post(user, { threadId: attack.threadId, resume: { interruptId: attack.confirm?.interruptId, approved } }),
     /** Everything the attacking model was sent, including tool results. */
     seenByModel: (): string => JSON.stringify((model as InstanceType<typeof ScriptedChatModel>).calls.flat().map((m: BaseMessage) => m.content)),
+    /** Only what the tools returned to the model, without the customer's own words. */
+    toolResultsSeen: (): string =>
+      JSON.stringify(
+        (model as InstanceType<typeof ScriptedChatModel>).calls
+          .flat()
+          .filter((m: BaseMessage) => m.getType() === 'tool')
+          .map((m: BaseMessage) => m.content),
+      ),
     stop: async () => {
       server.close();
       await mongoose.connection.dropDatabase();

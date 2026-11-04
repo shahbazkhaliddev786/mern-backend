@@ -120,8 +120,8 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 
 ## Tasks
 
-- [ ] **1. Foundation:** Drizzle and drizzle-kit; `src/db/client.ts`; the schema; the first migration; local `pgvector` container; per-file test schemas; `npm run db:generate`, `db:migrate` and `db:studio`
-- [ ] **2. Store data:** every model and service on Drizzle; the API's response shapes kept; the store's tests ported
+- [x] **1. Foundation** (`9888fee`): Drizzle and drizzle-kit; `src/db/client.ts`; the schema; the first migration; local `pgvector` container; per-file test schemas; `npm run db:generate`, `db:migrate` and `db:studio`
+- [x] **2. Store data** (`42e60cf`): every model and service on Drizzle; the API's response shapes kept; the store's tests ported
 - [ ] **3. Agent stores:** the checkpointer, claims, limits, feedback and samples; the agent's tests and the safety gate ported
 - [ ] **4. Knowledge search:** `knowledge_chunks` on pgvector + full-text; the ingest and retrieval ported; the retrieval tests ported
 - [ ] **5. The rest:** sessions, logs and expiry; MongoDB packages removed; CI moved to the Postgres service
@@ -163,3 +163,14 @@ _None — resolved 2026-11-04, see the decision log._
 | 2026-11-04 | This spec is 023, before launch; launch becomes 024 | The launch has to run on the new database |
 | 2026-11-04 | Approved with the defaults: UUID ids with responses keeping `_id`; the MongoDB log transport dropped; `expires_at` with cleanup on write plus `db:cleanup`; staged commits on `db-migration` then one pull request; the `pg` driver with Neon's pooled URL | Owner's choice |
 | 2026-11-04 | Existing data: the one-time copy script is built and dry-run against a Neon branch; running it on production is the owner's call | Whether the live store holds real customers or orders wasn't answered, and the script is the safe default either way |
+| 2026-11-04 | Test files each get their own database, cloned from a template the migrations already ran on, instead of a schema each | A clone is a fast copy, and the migrations, pgvector and Drizzle's journal stay in `public` as they are in production |
+| 2026-11-04 | Locally: Postgres 16 with pgvector 0.6; CI: `pgvector/pgvector:pg17` | Docker Hub refused the image here (rate limit); the schema uses nothing that differs between 16 and 17 |
+| 2026-11-04 | The migrations stay one init migration, regenerated while `db-migration` is unmerged | No database outside the tests has run them |
+| 2026-11-04 | `sku` is optional | The Mongoose schema never stored one, and products are created without it |
+| 2026-11-04 | Deleting an account keeps its orders, without a user; its cart, pending checkouts and uploads go with it | As in Mongo, where orders kept their history; Postgres now cleans up the rest |
+| 2026-11-04 | A category or brand that products still use can't be deleted (a clear error); a deleted product leaves every cart | Mongo allowed both and left records pointing at nothing |
+| 2026-11-04 | `getUserById` returns the user without the password or tokens | The Mongo service returned the whole document; every caller used only the safe fields |
+| 2026-11-04 | Database errors never reach a client; logs get the error code and the server's message | Drizzle's error messages include the SQL and its values, which can be a password hash or a token |
+| 2026-11-04 | `DATABASE_URL` is Postgres from stage 2; MongoDB reads `MONGODB_URL` until stage 5 removes it | The store moved first, while the agent's stores, sessions and logs are still on MongoDB |
+| 2026-11-04 | Postgres tracing (`instrumentation-pg`) comes in stage 2, not 5 | The checkout trace (spec 017) has to keep reaching the database |
+| 2026-11-04 | Safety case 3 checks only what the tools returned | An all-digit order-number suffix could appear in the attacker's own message (CI run #33) |

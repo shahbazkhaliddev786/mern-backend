@@ -1,6 +1,6 @@
 // `npm run agent:review` (spec 021): the owner's review queue of flagged live turns (judge flags
 // and thumbs-down), newest first, with their redacted snapshots. Run locally against production
-// (DATABASE_URL or ONLINE_EVALS_DATABASE_URL). A problem worth keeping becomes a hand-written
+// (MONGODB_URL or ONLINE_EVALS_DATABASE_URL). A problem worth keeping becomes a hand-written
 // golden in evals/agent/goldens.json with the test catalog and customers, never customer text.
 //   npm run agent:review
 //   npm run agent:review -- --resolve s:<id> --as promoted|dismissed [--note "…"]
@@ -14,8 +14,8 @@ const print = (text: string) => process.stdout.write(`${text}\n`);
 
 async function main(): Promise<number> {
   const { values } = parseArgs({ options: { resolve: { type: 'string' }, as: { type: 'string' }, note: { type: 'string' } } });
-  const url = process.env.ONLINE_EVALS_DATABASE_URL || config.DATABASE_URL;
-  if (!url) throw new Error('Set DATABASE_URL (or ONLINE_EVALS_DATABASE_URL)');
+  const url = process.env.ONLINE_EVALS_DATABASE_URL || config.MONGODB_URL;
+  if (!url) throw new Error('Set MONGODB_URL (or ONLINE_EVALS_DATABASE_URL)');
   await mongoose.connect(url);
   if (values.resolve) {
     if (values.as !== 'promoted' && values.as !== 'dismissed') throw new Error('--as must be promoted or dismissed');

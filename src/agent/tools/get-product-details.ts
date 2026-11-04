@@ -1,11 +1,11 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getAllProductsService, getProductByIdService } from '../../services/product.service.js';
-import { OBJECT_ID_PATTERN, productUrl, refName, safely, toolError, toolResult, untrusted } from './helpers.js';
+import { ID_PATTERN, productUrl, refName, safely, toolError, toolResult, untrusted } from './helpers.js';
 import { READ_TOOL_METADATA, type ToolContext } from './types.js';
 
 const schema = z.object({
-  product_id: z.string().regex(OBJECT_ID_PATTERN, 'Not a product id').describe('The product id from search results or a product link'),
+  product_id: z.string().regex(ID_PATTERN, 'Not a product id').describe('The product id from search results or a product link'),
 });
 
 const RELATED_LIMIT = 4;

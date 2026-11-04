@@ -1,8 +1,12 @@
-// Chat uploads against MongoDB (spec 012), with the profile update mocked (no Cloudinary).
-// Runs only when MONGO_URL is set.
+// Chat uploads against Postgres (spec 012), with the profile update mocked (no Cloudinary).
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import mongoose from 'mongoose';
+import { getDb } from '../db/client';
+import { pendingUploads, users } from '../db/schema/index';
+import { createTestDatabase, TEST_DATABASE_URL, type TestDatabase } from '../db/test-db';
+import * as uploads from './upload.service';
+
+if (process.env.CI === 'true' && !TEST_DATABASE_URL) throw new Error('The Postgres tests need TEST_DATABASE_URL in CI (spec 023).');
 
 const profile = vi.hoisted(() => ({ calls: [] as { userId: string; type: string; bytes: number }[], fail: false }));
 vi.mock('./auth.service.js', () => ({
@@ -13,28 +17,30 @@ vi.mock('./auth.service.js', () => ({
   },
 }));
 
-const MONGO_URL = process.env.MONGO_URL;
-
-describe.skipIf(!MONGO_URL)('upload.service', () => {
-  let models: typeof import('../models/index.js');
-  let uploads: typeof import('./upload.service.js');
-  const alice = new mongoose.Types.ObjectId().toString();
-  const mallory = new mongoose.Types.ObjectId().toString();
+describe.skipIf(!TEST_DATABASE_URL)('upload.service', () => {
+  let testDb: TestDatabase;
+  let alice = '';
+  let mallory = '';
   const file = { buffer: Buffer.alloc(4096, 7), mimetype: 'image/webp', originalname: 'me.webp', size: 4096 };
+  const stored = async () => (await getDb().select({ id: pendingUploads.id }).from(pendingUploads)).length;
 
   beforeAll(async () => {
-    await mongoose.connect(`${MONGO_URL}/upload_service_test`);
-    await mongoose.connection.dropDatabase();
-    models = await import('../models/index.js');
-    uploads = await import('./upload.service.js');
-    await models.PendingUpload.init();
-  });
+    testDb = await createTestDatabase('uploads');
+    const made = await getDb()
+      .insert(users)
+      .values([
+        { name: 'Alice', email: 'alice@example.com', password: 'hash' },
+        { name: 'Mallory', email: 'mallory@example.com', password: 'hash' },
+      ])
+      .returning();
+    alice = made[0]!.id;
+    mallory = made[1]!.id;
+  }, 60_000);
   afterAll(async () => {
-    await mongoose.connection.dropDatabase();
-    await mongoose.disconnect();
+    await testDb?.drop();
   });
   beforeEach(async () => {
-    await models.PendingUpload.deleteMany({});
+    await getDb().delete(pendingUploads);
     profile.calls = [];
     profile.fail = false;
   });
@@ -51,28 +57,35 @@ describe.skipIf(!MONGO_URL)('upload.service', () => {
     const created = await uploads.createAvatarUpload(alice, file);
     await uploads.applyAvatarUpload(alice, created.uploadId);
     expect(profile.calls).toEqual([{ userId: alice, type: 'image/webp', bytes: 4096 }]);
-    expect(await models.PendingUpload.countDocuments({})).toBe(0);
+    expect(await stored()).toBe(0);
   });
 
-  it('never applies another customer\'s upload', async () => {
+  it("never applies another customer's upload", async () => {
     const created = await uploads.createAvatarUpload(alice, file);
     await expect(uploads.applyAvatarUpload(mallory, created.uploadId)).rejects.toThrow(uploads.UploadNotFoundError);
     expect(profile.calls).toHaveLength(0);
-    expect(await models.PendingUpload.countDocuments({})).toBe(1);
+    expect(await stored()).toBe(1);
   });
 
-  it('keeps the upload when the picture can\'t be saved, so it can be tried again', async () => {
+  it("keeps the upload when the picture can't be saved, so it can be tried again", async () => {
     const created = await uploads.createAvatarUpload(alice, file);
     profile.fail = true;
     await expect(uploads.applyAvatarUpload(alice, created.uploadId)).rejects.toThrow('Failed to upload profile picture');
-    expect(await models.PendingUpload.countDocuments({})).toBe(1);
+    expect(await stored()).toBe(1);
     profile.fail = false;
     await uploads.applyAvatarUpload(alice, created.uploadId);
     expect(profile.calls).toHaveLength(1);
   });
 
-  it('expires uploads an hour after they arrive', async () => {
-    const indexes = await models.PendingUpload.collection.indexes();
-    expect(indexes.find((index) => index.key.createdAt === 1)?.expireAfterSeconds).toBe(3600);
+  it('expires uploads an hour after they arrive, even before the cleanup removes them', async () => {
+    const created = await uploads.createAvatarUpload(alice, file);
+    const [row] = await getDb().select().from(pendingUploads);
+    expect(row!.expiresAt.getTime() - row!.createdAt.getTime()).toBeCloseTo(60 * 60 * 1000, -3);
+
+    await getDb()
+      .update(pendingUploads)
+      .set({ expiresAt: new Date(Date.now() - 1000) });
+    expect(await uploads.findOwnedUpload(alice, created.uploadId)).toBeNull();
+    await expect(uploads.applyAvatarUpload(alice, created.uploadId)).rejects.toThrow(uploads.UploadNotFoundError);
   });
 });

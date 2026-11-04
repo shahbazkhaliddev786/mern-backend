@@ -1,6 +1,6 @@
 // One trace for a checkout turn (spec 017, M6's exit criterion): HTTP → agent.turn → model call →
-// place_order → MongoDB, with the real agent router, tools and database. Stripe and the model are
-// stand-ins. Runs only when MONGO_URL is set.
+// place_order → Postgres, with the real agent router, tools and database. Stripe and the model are
+// stand-ins. Runs only when TEST_DATABASE_URL is set.
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { tracing as sdkTracing } from '@opentelemetry/sdk-node';
@@ -9,9 +9,10 @@ vi.mock('../config/stripe.js', () => ({
   stripeClient: { checkout: { sessions: { create: async () => ({ id: 'cs_test_trace', url: 'https://checkout.stripe.com/c/pay/cs_test_trace' }) } } },
 }));
 
-const MONGO_URL = process.env.MONGO_URL;
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+if (process.env.CI === 'true' && !TEST_DATABASE_URL) throw new Error('The Postgres tests need TEST_DATABASE_URL in CI (spec 023).');
 
-describe.skipIf(!MONGO_URL)('a traced checkout turn', () => {
+describe.skipIf(!TEST_DATABASE_URL)('a traced checkout turn', () => {
   let spans: () => sdkTracing.ReadableSpan[];
   let base = '';
   let userId = '';
@@ -22,7 +23,7 @@ describe.skipIf(!MONGO_URL)('a traced checkout turn', () => {
     process.env.CLOUDINARY_CLOUD_NAME ??= 'test';
     process.env.CLOUDINARY_API_KEY ??= 'test';
     process.env.CLOUDINARY_API_SECRET ??= 'test';
-    // Tracing first, so the HTTP and MongoDB modules are patched before they load.
+    // Tracing first, so the HTTP and Postgres modules are patched before they load.
     const { tracing } = await import('@opentelemetry/sdk-node');
     const memory = new tracing.InMemorySpanExporter();
     const { startTracing } = await import('../tracing.js');
@@ -30,24 +31,29 @@ describe.skipIf(!MONGO_URL)('a traced checkout turn', () => {
     spans = () => memory.getFinishedSpans();
 
     const { default: express } = await import('express');
-    const { default: mongoose } = await import('mongoose');
     const http = await import('node:http');
     const { AIMessage } = await import('@langchain/core/messages');
     const { MemorySaver } = await import('@langchain/langgraph');
     const { default: config } = await import('../config/config.js');
-    const models = await import('../models/index.js');
+    const { createTestDatabase } = await import('../db/test-db.js');
+    const { getDb } = await import('../db/client.js');
+    const tables = await import('../db/schema/index.js');
     const { createAgentRouter } = await import('../routes/agent.routes.js');
     const { memoryLimiters, ScriptedChatModel, toolCall } = await import('./test-utils.js');
     const { setAgentLimiters } = await import('./limits.js');
 
-    await mongoose.connect(`${MONGO_URL}/agent_tracing_test`);
-    await mongoose.connection.dropDatabase();
-    const user = await models.User.create({ name: 'Jane', email, password: 'secret-password', isVerified: true });
-    const category = await models.Category.create({ name: 'Shoes' });
-    const brand = await models.Brand.create({ name: 'Aljo' });
-    const product = await models.Product.create({ name: 'Trail Runner', description: 'Trail shoe', price: 45, stock: 10, sku: 'TR-T', category: category._id, brand: brand._id });
-    userId = String(user._id);
-    await models.Cart.create({ user: user._id, items: [{ product: product._id, quantity: 2 }] });
+    const testDb = await createTestDatabase('agent_tracing');
+    const db = getDb();
+    const [user] = await db.insert(tables.users).values({ name: 'Jane', email, password: 'hash', isVerified: true }).returning();
+    const [category] = await db.insert(tables.categories).values({ name: 'Shoes' }).returning();
+    const [brand] = await db.insert(tables.brands).values({ name: 'Aljo' }).returning();
+    const [product] = await db
+      .insert(tables.products)
+      .values({ name: 'Trail Runner', description: 'Trail shoe', price: 45, stock: 10, sku: 'TR-T', categoryId: category!.id, brandId: brand!.id })
+      .returning();
+    userId = user!.id;
+    const [cart] = await db.insert(tables.carts).values({ userId }).returning();
+    await db.insert(tables.cartItems).values({ cartId: cart!.id, productId: product!.id, quantity: 2 });
 
     Object.assign(config, { AGENT_ENABLED: 'true', ANTHROPIC_API_KEY: 'test', VOYAGE_API_KEY: 'test' });
     setAgentLimiters(memoryLimiters());
@@ -71,8 +77,7 @@ describe.skipIf(!MONGO_URL)('a traced checkout turn', () => {
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}/agent/chat`;
     close = async () => {
       server.close();
-      await mongoose.connection.dropDatabase();
-      await mongoose.disconnect();
+      await testDb.drop();
     };
   }, 60_000);
 
@@ -110,7 +115,8 @@ describe.skipIf(!MONGO_URL)('a traced checkout turn', () => {
     const agentTurn = inTrace.find((s) => s.name === 'agent.turn')!;
     const tool = inTrace.find((s) => s.name === 'tool place_order')!;
     const model = inTrace.find((s) => s.name === 'chat claude-sonnet-5-5')!;
-    const queries = inTrace.filter((s) => s.instrumentationScope.name === '@opentelemetry/instrumentation-mongodb' && parentOf(s) === tool);
+    // Each query the tool ran (pool checkouts get spans of their own, with no query).
+    const queries = inTrace.filter((s) => s.instrumentationScope.name === '@opentelemetry/instrumentation-pg' && s.name.startsWith('pg.query') && parentOf(s) === tool);
 
     expect(parentOf(agentTurn)).toBe(server);
     expect(parentOf(tool)).toBe(agentTurn);
@@ -122,12 +128,11 @@ describe.skipIf(!MONGO_URL)('a traced checkout turn', () => {
     // Ids and counts only: no raw user id, email, address or query values anywhere.
     const attributes = JSON.stringify(inTrace.map((s) => s.attributes));
     for (const secret of [userId, email, 'Lahore', '1 Main St']) expect(attributes).not.toContain(secret);
-    // The query's shape is kept for debugging; every value in it is masked as "?".
-    const leaves = (node: unknown): unknown[] =>
-      node && typeof node === 'object' ? Object.values(node as Record<string, unknown>).flatMap(leaves) : [node];
+    // The SQL is kept for debugging; its values are parameters, which are never recorded.
     for (const query of queries) {
-      const shape = JSON.parse(String(query.attributes['db.query.text'] ?? '{}')) as unknown;
-      expect(leaves(shape).every((value) => value === '?')).toBe(true);
+      const sql = String(query.attributes['db.query.text'] ?? query.attributes['db.statement'] ?? '');
+      expect(sql).toMatch(/^(select|insert|update|delete|begin|commit)\b/i);
+      expect(Object.keys(query.attributes).filter((key) => key.includes('values') || key.includes('parameters'))).toEqual([]);
     }
   });
 

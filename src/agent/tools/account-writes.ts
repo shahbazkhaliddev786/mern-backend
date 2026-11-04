@@ -9,7 +9,7 @@ import { getUserById, updateUserProfile } from '../../services/auth.service.js';
 import { submitSupportRequest, SupportDeliveryError } from '../../services/support.service.js';
 import { applyAvatarUpload, findOwnedUpload, formatSize, UploadNotFoundError } from '../../services/upload.service.js';
 import { supportMessageSchema } from '../../validations/support.schema.js';
-import { OBJECT_ID_PATTERN, safely, toolError, toolResult } from './helpers.js';
+import { ID_PATTERN, safely, toolError, toolResult } from './helpers.js';
 import { CONFIRMED_WRITE_TOOL_METADATA, type ToolContext } from './types.js';
 
 // Same bounds as sign-up (registerValidation): 2-50 characters after trimming.
@@ -75,7 +75,7 @@ export async function summarizeSupportRequest(ctx: ToolContext, args: Record<str
 // upload_avatar (spec 012): applies an image the customer attached in the chat. The model only
 // has the opaque upload_id from the server's attachment note; the bytes never reach it.
 const avatarSchema = z.object({
-  upload_id: z.string().regex(OBJECT_ID_PATTERN, 'Not an upload id').describe("The upload_id from the attachment note in the customer's message"),
+  upload_id: z.string().regex(ID_PATTERN, 'Not an upload id').describe("The upload_id from the attachment note in the customer's message"),
 });
 
 export const uploadAvatarTool = (ctx: ToolContext) =>

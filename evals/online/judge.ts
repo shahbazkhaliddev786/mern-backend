@@ -1,6 +1,6 @@
 // `npm run eval:online` (spec 021): judges one batch of sampled live turns with Claude Haiku 5.5,
 // flags the low scorers for review and prints a summary with no customer text (also to the CI
-// job summary). Needs ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or DATABASE_URL); skips
+// job summary). Needs ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or MONGODB_URL); skips
 // without them. ONLINE_EVAL_DAILY_CAP limits the turns judged per day (default 200).
 
 import { appendFileSync } from 'node:fs';
@@ -39,9 +39,9 @@ const haikuJudge: Judge = async (snapshot) => {
 };
 
 async function main(): Promise<number> {
-  const url = process.env.ONLINE_EVALS_DATABASE_URL || config.DATABASE_URL;
+  const url = process.env.ONLINE_EVALS_DATABASE_URL || config.MONGODB_URL;
   if (!config.ANTHROPIC_API_KEY || !url) {
-    const note = 'Online evals skipped: set ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or DATABASE_URL) to run them.';
+    const note = 'Online evals skipped: set ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or MONGODB_URL) to run them.';
     print(note);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${note}\n`);
     return 0;

@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import { asyncHandler } from '../utils/async.handler.js';
 import { apiResponse } from '../utils/api.response.js';
 import logger from '../utils/logger.js';
+import { clientErrorMessage, describeError } from '../db/client.js';
 import {
   getCart,
   addToCart,
@@ -36,8 +37,8 @@ export const getUserCart = asyncHandler(async (req: Request, res: Response) => {
     });
     return apiResponse(res, 200, 'success', 'Cart retrieved successfully', cart);
   } catch (error: any) {
-    logger.error('Error retrieving cart', { error: error.message, userId: (req as any).user?._id || 'guest' });
-    return apiResponse(res, 500, 'error', error.message || 'Failed to retrieve cart');
+    logger.error('Error retrieving cart', { error: describeError(error), userId: (req as any).user?._id || 'guest' });
+    return apiResponse(res, 500, 'error', clientErrorMessage(error, 'Failed to retrieve cart'));
   }
 });
 
@@ -63,10 +64,10 @@ export const addItemToCart = asyncHandler(async (req: Request<{},{}, AddToCartBo
       userId: (req as any).user?._id || 'guest',
       productId,
       quantity,
-      error: error.message,
+      error: describeError(error),
     });
 
-    return apiResponse(res, 400, 'error', error.message || 'Failed to add item to cart');
+    return apiResponse(res, 400, 'error', clientErrorMessage(error, 'Failed to add item to cart'));
   }
 });
 
@@ -95,10 +96,10 @@ export const updateItemInCart = asyncHandler(async (req: Request<CartItemParams,
     logger.warn('Failed to update cart item', {
       userId: (req as any).user?._id || 'guest',
       productId,
-      error: error.message,
+      error: describeError(error),
     });
 
-    return apiResponse(res, 400, 'error', error.message || 'Failed to update cart item');
+    return apiResponse(res, 400, 'error', clientErrorMessage(error, 'Failed to update cart item'));
   }
 });
 
@@ -123,10 +124,10 @@ export const removeItemFromCart = asyncHandler(async (req: Request<CartItemParam
     logger.warn('Failed to remove item from cart', {
       userId: (req as any).user?._id || 'guest',
       productId,
-      error: error.message,
+      error: describeError(error),
     });
 
-    return apiResponse(res, 400, 'error', error.message || 'Failed to remove item from cart');
+    return apiResponse(res, 400, 'error', clientErrorMessage(error, 'Failed to remove item from cart'));
   }
 });
 
@@ -144,7 +145,7 @@ export const clearUserCart = asyncHandler(async (req: Request, res: Response) =>
   } catch (error: any) {
     logger.error('Failed to clear cart', {
       userId: (req as any).user?._id || 'guest',
-      error: error.message,
+      error: describeError(error),
     });
 
     return apiResponse(res, 500, 'error', 'Failed to clear cart');

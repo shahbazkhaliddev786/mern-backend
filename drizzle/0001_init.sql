@@ -34,7 +34,7 @@ CREATE TABLE "categories" (
 --> statement-breakpoint
 CREATE TABLE "orders" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"user_id" uuid NOT NULL,
+	"user_id" uuid,
 	"items" jsonb NOT NULL,
 	"subtotal" numeric(10, 2) NOT NULL,
 	"tax" numeric(10, 2) DEFAULT 0 NOT NULL,
@@ -57,7 +57,8 @@ CREATE TABLE "otps" (
 	"email" text NOT NULL,
 	"otp" text NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
-	"attempts" integer DEFAULT 0 NOT NULL
+	"attempts" integer DEFAULT 0 NOT NULL,
+	CONSTRAINT "otps_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
 CREATE TABLE "pending_checkouts" (
@@ -94,7 +95,7 @@ CREATE TABLE "products" (
 	"name" text NOT NULL,
 	"description" text NOT NULL,
 	"price" numeric(10, 2) NOT NULL,
-	"sku" text NOT NULL,
+	"sku" text,
 	"images" jsonb DEFAULT '[]'::jsonb NOT NULL,
 	"stock" integer DEFAULT 0 NOT NULL,
 	"category_id" uuid NOT NULL,
@@ -180,14 +181,13 @@ CREATE TABLE "knowledge_chunks" (
 ALTER TABLE "cart_items" ADD CONSTRAINT "cart_items_cart_id_carts_id_fk" FOREIGN KEY ("cart_id") REFERENCES "public"."carts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cart_items" ADD CONSTRAINT "cart_items_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "carts" ADD CONSTRAINT "carts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "orders" ADD CONSTRAINT "orders_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "orders" ADD CONSTRAINT "orders_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pending_checkouts" ADD CONSTRAINT "pending_checkouts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "pending_uploads" ADD CONSTRAINT "pending_uploads_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "products" ADD CONSTRAINT "products_category_id_categories_id_fk" FOREIGN KEY ("category_id") REFERENCES "public"."categories"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "products" ADD CONSTRAINT "products_brand_id_brands_id_fk" FOREIGN KEY ("brand_id") REFERENCES "public"."brands"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "orders_user_created_idx" ON "orders" USING btree ("user_id","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "orders_status_idx" ON "orders" USING btree ("status");--> statement-breakpoint
-CREATE INDEX "otps_email_idx" ON "otps" USING btree ("email");--> statement-breakpoint
 CREATE INDEX "otps_expires_at_idx" ON "otps" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "pending_checkouts_reuse_idx" ON "pending_checkouts" USING btree ("user_id","cart_hash","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "pending_checkouts_expires_at_idx" ON "pending_checkouts" USING btree ("expires_at");--> statement-breakpoint

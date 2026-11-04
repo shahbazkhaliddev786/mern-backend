@@ -1,5 +1,5 @@
 // `npm run agent:setup` — prepares a database for the agent (spec 003). Run once per
-// environment with that environment's DATABASE_URL; running it again changes nothing.
+// environment with that environment's MONGODB_URL; running it again changes nothing.
 //   1. checkpointer.setup(): query indexes + 30-day TTL indexes on checkpoints/checkpoint_writes
 //   2. confirm_claims: 30-day TTL index on createdAt (the interrupt id is the unique _id)
 //   3. knowledge_chunks: the vector and keyword search indexes (spec 013; Atlas only)

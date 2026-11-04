@@ -1,7 +1,23 @@
-import { Cart, Product, User } from '../models/index.js';
-import { calculateCartTotals, CART_ITEM_POPULATE } from './cart.service.js';
+import { and, count, desc, eq, or, sql, type SQL } from 'drizzle-orm';
+import { getDb } from '../db/client.js';
+import { cartItems, carts, products, users } from '../db/schema/index.js';
+import { isId } from '../utils/ids.js';
+import { calculateCartTotals, findCart, findProductForQuantity, loadCartItems, setCartLine, touchCart } from './cart.service.js';
 
-const USER_POPULATE = { path: 'user', select: 'name email' };
+const userRef = { _id: users.id, name: users.name, email: users.email };
+
+// Each cart's item count and subtotal, for carts with at least one line.
+const cartTotals = () =>
+  getDb()
+    .select({
+      cartId: cartItems.cartId,
+      itemsCount: sql<string>`sum(${cartItems.quantity})`.as('items_count'),
+      subtotal: sql<string>`sum(${cartItems.quantity} * ${products.price})`.as('subtotal'),
+    })
+    .from(cartItems)
+    .innerJoin(products, eq(cartItems.productId, products.id))
+    .groupBy(cartItems.cartId)
+    .as('totals');
 
 export const getAllCartsService = async ({
   search,
@@ -12,41 +28,33 @@ export const getAllCartsService = async ({
   page?: number;
   limit?: number;
 } = {}) => {
-  const query: any = { items: { $exists: true, $ne: [] } };
+  const term = search?.trim();
+  // A case-insensitive pattern on the customer's name or email, as the Mongo regex was.
+  const where: SQL | undefined = term ? or(sql`${users.name} ~* ${term}`, sql`${users.email} ~* ${term}`) : undefined;
+  const totals = cartTotals();
 
-  if (search && search.trim()) {
-    const regex = new RegExp(search.trim(), 'i');
-    const matchingUsers = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id');
-    query.user = { $in: matchingUsers.map((u) => u._id) };
-  }
-
-  const totalItems = await Cart.countDocuments(query);
+  const [counted] = await getDb()
+    .select({ total: count() })
+    .from(carts)
+    .innerJoin(users, eq(carts.userId, users.id))
+    .innerJoin(totals, eq(totals.cartId, carts.id))
+    .where(where);
+  const totalItems = counted?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalItems / limit));
   const skip = (page - 1) * limit;
 
-  const carts = await Cart.find(query)
-    .populate(USER_POPULATE)
-    .populate({ path: 'items.product', select: 'price' })
-    .sort({ updatedAt: -1 })
-    .skip(skip)
+  const rows = await getDb()
+    .select({ _id: carts.id, user: userRef, itemsCount: totals.itemsCount, subtotal: totals.subtotal, updatedAt: carts.updatedAt })
+    .from(carts)
+    .innerJoin(users, eq(carts.userId, users.id))
+    .innerJoin(totals, eq(totals.cartId, carts.id))
+    .where(where)
+    .orderBy(desc(carts.updatedAt), desc(carts.id))
     .limit(limit)
-    .lean();
-
-  const summaries = await Promise.all(
-    carts.map(async (cart: any) => {
-      const totals = await calculateCartTotals(cart.items);
-      return {
-        _id: cart._id,
-        user: cart.user,
-        itemsCount: totals.itemsCount,
-        subtotal: totals.subtotal,
-        updatedAt: cart.updatedAt,
-      };
-    })
-  );
+    .offset(skip);
 
   return {
-    carts: summaries,
+    carts: rows.map((row) => ({ ...row, itemsCount: Number(row.itemsCount), subtotal: Number(Number(row.subtotal).toFixed(2)) })),
     pagination: {
       currentPage: page,
       totalPages,
@@ -58,54 +66,54 @@ export const getAllCartsService = async ({
 };
 
 export const getCartByUserIdService = async (userId: string) => {
-  const cart = await Cart.findOne({ user: userId }).populate([CART_ITEM_POPULATE, USER_POPULATE]);
+  const cart = await findCart(getDb(), userId);
   if (!cart) throw new Error('Cart not found for this user');
 
-  const totals = await calculateCartTotals(cart.items);
-  const cartData = cart.toObject();
+  const [user] = await getDb().select(userRef).from(users).where(eq(users.id, cart.userId));
+  const items = await loadCartItems(cart.id);
+  const totals = await calculateCartTotals(items);
 
   return {
-    ...cartData,
+    _id: cart.id,
+    user: user ?? null,
+    items,
+    createdAt: cart.createdAt,
+    updatedAt: cart.updatedAt,
     itemsCount: totals.itemsCount,
     subtotal: totals.subtotal,
   };
 };
 
 export const adminUpdateCartItemService = async (userId: string, productId: string, quantity: number) => {
-  const product = await Product.findById(productId);
-  if (!product) throw new Error('Product not found');
-  if (quantity > 0 && product.stock < quantity) throw new Error('Insufficient stock');
+  await findProductForQuantity(productId, quantity);
 
-  const cart: any = await Cart.findOne({ user: userId });
+  const cart = await findCart(getDb(), userId);
   if (!cart) throw new Error('Cart not found for this user');
 
-  const itemIndex = cart.items.findIndex((item: any) => item.product.toString() === productId);
-  if (itemIndex === -1) throw new Error('Item not in cart');
+  if (!(await setCartLine(getDb(), cart.id, productId, quantity))) throw new Error('Item not in cart');
+  await touchCart(getDb(), cart.id);
 
-  if (quantity <= 0) {
-    cart.items.splice(itemIndex, 1);
-  } else {
-    cart.items[itemIndex].quantity = quantity;
-  }
-
-  await cart.save();
   return getCartByUserIdService(userId);
 };
 
 export const adminRemoveCartItemService = async (userId: string, productId: string) => {
-  const cart: any = await Cart.findOne({ user: userId });
+  const cart = await findCart(getDb(), userId);
   if (!cart) throw new Error('Cart not found for this user');
 
-  cart.items = cart.items.filter((item: any) => item.product.toString() !== productId);
-  await cart.save();
+  if (isId(productId)) {
+    await getDb()
+      .delete(cartItems)
+      .where(and(eq(cartItems.cartId, cart.id), eq(cartItems.productId, productId)));
+  }
+  await touchCart(getDb(), cart.id);
   return getCartByUserIdService(userId);
 };
 
 export const adminClearCartService = async (userId: string) => {
-  const cart: any = await Cart.findOne({ user: userId });
+  const cart = await findCart(getDb(), userId);
   if (!cart) throw new Error('Cart not found for this user');
 
-  cart.items = [];
-  await cart.save();
+  await getDb().delete(cartItems).where(eq(cartItems.cartId, cart.id));
+  await touchCart(getDb(), cart.id);
   return getCartByUserIdService(userId);
 };

@@ -23,8 +23,7 @@ export {
     removeFromCart,
     updateCartItem,
     clearCart,
-    calculateCartTotals,
-    CART_ITEM_POPULATE
+    calculateCartTotals
 } from './cart.service.js'
 
 export {

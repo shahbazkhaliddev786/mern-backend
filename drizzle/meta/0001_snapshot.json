@@ -1,6 +1,6 @@
 {
-  "id": "b1010936-c913-4646-96f8-dd551f5b68c5",
-  "prevId": "156c64f1-401e-4ab7-ba67-1ab59e9eaed7",
+  "id": "2cea5141-7f5b-48c1-897e-9bc812d2d0a4",
+  "prevId": "fe876380-56f8-4aac-8579-ac185ac23018",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -264,7 +264,7 @@
           "name": "user_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "items": {
           "name": "items",
@@ -407,7 +407,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -463,21 +463,6 @@
         }
       },
       "indexes": {
-        "otps_email_idx": {
-          "name": "otps_email_idx",
-          "columns": [
-            {
-              "expression": "email",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "otps_expires_at_idx": {
           "name": "otps_expires_at_idx",
           "columns": [
@@ -496,7 +481,15 @@
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "otps_email_unique": {
+          "name": "otps_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -810,7 +803,7 @@
           "name": "sku",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "images": {
           "name": "images",

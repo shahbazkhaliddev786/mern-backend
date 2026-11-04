@@ -1,18 +1,17 @@
-// Real queries behind the read tools, against MongoDB (spec 005). Runs only when
-// MONGO_URL is set (e.g. mongodb://127.0.0.1:27017 with a local mongo:7 container).
+// Real queries behind the read tools, against Postgres (spec 005, ported in spec 023).
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import mongoose from 'mongoose';
+import { createTestDatabase, TEST_DATABASE_URL, type TestDatabase } from '../../db/test-db';
 
-const MONGO_URL = process.env.MONGO_URL;
+if (process.env.CI === 'true' && !TEST_DATABASE_URL) throw new Error('The Postgres tests need TEST_DATABASE_URL in CI (spec 023).');
 
-describe.skipIf(!MONGO_URL)('read tools against MongoDB', () => {
+describe.skipIf(!TEST_DATABASE_URL)('read tools against Postgres', () => {
   // product.service and auth.service import the Cloudinary config, which throws without these.
   process.env.CLOUDINARY_CLOUD_NAME ??= 'test';
   process.env.CLOUDINARY_API_KEY ??= 'test';
   process.env.CLOUDINARY_API_SECRET ??= 'test';
 
-  let models: typeof import('../../models/index.js');
+  let testDb: TestDatabase;
   let tools: typeof import('./index.js');
   let products: typeof import('../../services/product.service.js');
   const ids = { owner: '', other: '', shoes: '', aljo: '', inStockProduct: '', soldOut: '', order: '' };
@@ -25,48 +24,57 @@ describe.skipIf(!MONGO_URL)('read tools against MongoDB', () => {
   };
 
   beforeAll(async () => {
-    await mongoose.connect(`${MONGO_URL}/agent_tools_test`);
-    await mongoose.connection.dropDatabase();
-    models = await import('../../models/index.js');
+    testDb = await createTestDatabase('agent_tools');
+    const { getDb } = await import('../../db/client.js');
+    const schema = await import('../../db/schema/index.js');
     tools = await import('./index.js');
     products = await import('../../services/product.service.js');
+    const db = getDb();
 
-    const [owner, other] = await models.User.create([
-      { name: 'Owner', email: 'owner@example.com', password: 'secret-password', isVerified: true },
-      { name: 'Other', email: 'other@example.com', password: 'secret-password', isVerified: true },
-    ]);
-    const shoes = await models.Category.create({ name: 'Shoes' });
-    const aljo = await models.Brand.create({ name: 'Aljo' });
-    const [inStock, soldOut] = await models.Product.create([
-      { name: 'Trail (Runner)', description: 'Light trail shoe', price: 45, stock: 3, sku: 'TR-1', category: shoes._id, brand: aljo._id },
-      { name: 'Road Runner', description: 'Road shoe', price: 60, stock: 0, sku: 'RR-1', category: shoes._id, brand: aljo._id },
-    ]);
-    const order = await models.Order.create({
-      user: owner!._id,
-      items: [{ product: inStock!._id, name: 'Trail (Runner)', price: 45, quantity: 1 }],
-      subtotal: 45,
-      tax: 0,
-      shipping: 0,
-      total: 45,
-      status: 'shipped',
-      paymentStatus: 'paid',
-      paymentMethod: 'stripe',
-      shippingAddress: { fullName: 'Owner', address: '1 Main St', city: 'Lahore', postalCode: '54000', country: 'Pakistan' },
-    });
+    const [owner, other] = await db
+      .insert(schema.users)
+      .values([
+        { name: 'Owner', email: 'owner@example.com', password: 'hash', isVerified: true },
+        { name: 'Other', email: 'other@example.com', password: 'hash', isVerified: true },
+      ])
+      .returning();
+    const [shoes] = await db.insert(schema.categories).values({ name: 'Shoes' }).returning();
+    const [aljo] = await db.insert(schema.brands).values({ name: 'Aljo' }).returning();
+    const [inStock, soldOut] = await db
+      .insert(schema.products)
+      .values([
+        { name: 'Trail (Runner)', description: 'Light trail shoe', price: 45, stock: 3, sku: 'TR-1', categoryId: shoes!.id, brandId: aljo!.id },
+        { name: 'Road Runner', description: 'Road shoe', price: 60, stock: 0, sku: 'RR-1', categoryId: shoes!.id, brandId: aljo!.id },
+      ])
+      .returning();
+    const [order] = await db
+      .insert(schema.orders)
+      .values({
+        userId: owner!.id,
+        items: [{ _id: crypto.randomUUID(), product: inStock!.id, name: 'Trail (Runner)', price: 45, quantity: 1 }],
+        subtotal: 45,
+        tax: 0,
+        shipping: 0,
+        total: 45,
+        status: 'shipped',
+        paymentStatus: 'paid',
+        paymentMethod: 'stripe',
+        shippingAddress: { fullName: 'Owner', address: '1 Main St', city: 'Lahore', postalCode: '54000', country: 'Pakistan' },
+      })
+      .returning();
     Object.assign(ids, {
-      owner: String(owner!._id),
-      other: String(other!._id),
-      shoes: String(shoes._id),
-      aljo: String(aljo._id),
-      inStockProduct: String(inStock!._id),
-      soldOut: String(soldOut!._id),
-      order: String(order._id),
+      owner: owner!.id,
+      other: other!.id,
+      shoes: shoes!.id,
+      aljo: aljo!.id,
+      inStockProduct: inStock!.id,
+      soldOut: soldOut!.id,
+      order: order!.id,
     });
-  });
+  }, 60_000);
 
   afterAll(async () => {
-    await mongoose.connection.dropDatabase();
-    await mongoose.disconnect();
+    await testDb?.drop();
   });
 
   it('search_products matches regex characters literally', async () => {
@@ -80,6 +88,8 @@ describe.skipIf(!MONGO_URL)('read tools against MongoDB', () => {
     expect(all.results.map((r: { name: string }) => r.name)).toEqual(['Road Runner', 'Trail (Runner)']);
     const inStock = await call(ids.owner, 'search_products', { categories: ['Shoes'], in_stock: true });
     expect(inStock.results.map((r: { name: string }) => r.name)).toEqual(['Trail (Runner)']);
+    const unknown = await call(ids.owner, 'search_products', { categories: ['Hats'] });
+    expect(unknown).toMatchObject({ results: [], unknownCategories: ['Hats'] });
   });
 
   it('getAllProductsService without inStock still returns sold-out products (REST unchanged)', async () => {
@@ -96,12 +106,12 @@ describe.skipIf(!MONGO_URL)('read tools against MongoDB', () => {
   it('get_order_status is owner-scoped: another user gets the same answer as a missing order', async () => {
     expect((await call(ids.owner, 'get_order_status', { order_id: ids.order })).status).toBe('shipped');
     const otherUser = await call(ids.other, 'get_order_status', { order_id: ids.order });
-    const missing = await call(ids.owner, 'get_order_status', { order_id: new mongoose.Types.ObjectId().toString() });
+    const missing = await call(ids.owner, 'get_order_status', { order_id: crypto.randomUUID() });
     expect(otherUser).toEqual({ error: 'No order with that id on your account.' });
     expect(missing).toEqual(otherUser);
   });
 
-  it('view_orders and view_profile see only the caller\'s data', async () => {
+  it("view_orders and view_profile see only the caller's data", async () => {
     expect((await call(ids.owner, 'view_orders')).totalMatching).toBe(1);
     expect((await call(ids.other, 'view_orders')).totalMatching).toBe(0);
     expect((await call(ids.other, 'view_profile')).email).toBe('other@example.com');

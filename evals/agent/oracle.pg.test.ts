@@ -1,7 +1,7 @@
 // Proves the agent suite (spec 020) without a key: a scripted "oracle" that makes exactly each
 // golden's expected calls passes every deterministic check, through the real router, tools and
-// MongoDB; and scripted models that misbehave fail the check aimed at them.
-// Runs only when MONGO_URL is set (it's part of `npm test`).
+// database; and scripted models that misbehave fail the check aimed at them.
+// Runs only when TEST_DATABASE_URL is set (it's part of `npm test`).
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { AIMessage } from '@langchain/core/messages';
@@ -16,13 +16,13 @@ vi.mock('../../src/agent/alerts.js', async () => (await import('./mocks')).alert
 vi.mock('../../src/services/order.service.js', async (importOriginal) => (await import('./mocks')).orderService(await importOriginal()));
 vi.mock('../../src/services/product.service.js', async (importOriginal) => (await import('./mocks')).productService(await importOriginal()));
 
-const MONGO_URL = process.env.MONGO_URL;
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
 // In CI the suite must run, not skip (spec 019).
-if (process.env.CI === 'true' && !MONGO_URL) throw new Error('The agent suite checks need MONGO_URL in CI (spec 020).');
+if (process.env.CI === 'true' && !TEST_DATABASE_URL) throw new Error('The agent suite checks need TEST_DATABASE_URL in CI (spec 020).');
 
 const HANDED_OVER = "I couldn't get that to work just now. I can send this to our support team if you'd like.";
 
-describe.skipIf(!MONGO_URL)('agent suite: the oracle passes, wrong models fail', () => {
+describe.skipIf(!TEST_DATABASE_URL)('agent suite: the oracle passes, wrong models fail', () => {
   let h: Harness;
   let goldens: Golden[] = [];
   let toolCall: (name: string, args?: Record<string, unknown>) => AIMessage;
@@ -45,7 +45,7 @@ describe.skipIf(!MONGO_URL)('agent suite: the oracle passes, wrong models fail',
     const { startHarness } = await import('../safety/harness');
     ({ ScriptedChatModel: Scripted, toolCall } = await import('../../src/agent/test-utils.js'));
     ({ runCase } = await import('./run'));
-    h = await startHarness(MONGO_URL as string, {
+    h = await startHarness({
       dbName: 'agent_eval_oracle',
       catalog: loadCatalog(),
       escalation: () => new Scripted([new AIMessage(HANDED_OVER)]),

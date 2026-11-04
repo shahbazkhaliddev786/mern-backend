@@ -1,5 +1,5 @@
 // Store-knowledge evals (spec 013, evals.md): the real agent model and tool, judged by Opus.
-// Needs ANTHROPIC_API_KEY, VOYAGE_API_KEY and DATABASE_URL pointing at an Atlas database where
+// Needs ANTHROPIC_API_KEY, VOYAGE_API_KEY and MONGODB_URL pointing at an Atlas database where
 // `npm run agent:setup` and `npm run agent:ingest` have run. Skipped without them.
 //   npm run eval:knowledge
 
@@ -29,7 +29,7 @@ interface Golden {
 
 // evals.md thresholds, on the mean over the answerable goldens.
 const THRESHOLDS = { recall: 0.8, precision: 0.7, faithfulness: 0.9 };
-const READY = Boolean(config.ANTHROPIC_API_KEY && config.VOYAGE_API_KEY && config.DATABASE_URL);
+const READY = Boolean(config.ANTHROPIC_API_KEY && config.VOYAGE_API_KEY && config.MONGODB_URL);
 
 interface Turn {
   answer: string;
@@ -72,7 +72,7 @@ describe.skipIf(!READY)('store knowledge evals', () => {
 
   beforeAll(async () => {
     goldens = (JSON.parse(await readFile('evals/knowledge.goldens.json', 'utf8')) as { goldens: Golden[] }).goldens;
-    await mongoose.connect(config.DATABASE_URL);
+    await mongoose.connect(config.MONGODB_URL);
   });
   afterAll(() => mongoose.disconnect());
 

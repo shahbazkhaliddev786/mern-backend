@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { addToCartSchema, MAX_CART_ITEM_QUANTITY, updateCartItemSchema } from './cart.schema';
 
-const productId = '64b000000000000000000001';
+const productId = '3f2b8c1e-9a4d-4e6f-8b2a-1c3d5e7f9a0b';
 
 describe('addToCartSchema', () => {
   it('defaults quantity to 1', () => {
@@ -18,6 +18,8 @@ describe('addToCartSchema', () => {
       expect(addToCartSchema.safeParse({ productId, quantity }).success).toBe(false);
     }
     expect(addToCartSchema.safeParse({ productId: 'not-an-id', quantity: 1 }).success).toBe(false);
+    // A MongoDB id from before spec 023 isn't an id any more.
+    expect(addToCartSchema.safeParse({ productId: '64b000000000000000000001', quantity: 1 }).success).toBe(false);
   });
 });
 

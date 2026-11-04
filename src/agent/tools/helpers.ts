@@ -38,8 +38,8 @@ export const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[
 
 export const productUrl = (id: unknown): string => `/products/${String(id)}`;
 
-/** 24-hex Mongo id, as the tools accept it. */
-export const OBJECT_ID_PATTERN = /^[a-f0-9]{24}$/i;
+/** A record id (a UUID), as the tools accept it. */
+export { ID_PATTERN } from '../../utils/ids.js';
 
 export const refName = (ref: unknown): string | null =>
   ref && typeof ref === 'object' && 'name' in ref ? String((ref as { name: unknown }).name) : null;

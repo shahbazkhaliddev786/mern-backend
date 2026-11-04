@@ -1,7 +1,8 @@
 import type { Session, SessionData } from 'express-session';
-import { Types } from 'mongoose';
-import { Cart, Product } from '../models/index.js';
-import { calculateCartTotals, findProductForQuantity } from './cart.service.js';
+import { getDb } from '../db/client.js';
+import { addCartLine, calculateCartTotals, ensureCart, findProductForQuantity, touchCart } from './cart.service.js';
+import { cartProduct, productsById } from './shapes.js';
+import { isId } from '../utils/ids.js';
 
 // Guest carts live in the express-session, so only the HTTP layer uses these —
 // the agent requires sign-in (reconciliation.md Gap 16) and uses cart.service.ts.
@@ -28,21 +29,13 @@ const getSessionCart = (session: GuestSession): { items: GuestCartItem[] } => {
 const populateGuestCartItems = async (items: GuestCartItem[]): Promise<any[]> => {
   if (items.length === 0) return [];
 
-  const productIds = items.map((item) => item.product);
-  const products = await Product.find({ _id: { $in: productIds } })
-    .select('name price images stock')
-    .populate([
-      { path: 'category', select: 'name' },
-      { path: 'brand', select: 'name' },
-    ]);
-
-  const productsById = new Map(products.map((product) => [product._id.toString(), product]));
+  const found = await productsById(items.map((item) => item.product).filter(isId));
 
   return items
-    .filter((item) => productsById.has(item.product))
+    .filter((item) => found.has(item.product))
     .map((item) => ({
       _id: item.product,
-      product: productsById.get(item.product),
+      product: cartProduct(found.get(item.product)!),
       quantity: item.quantity,
     }));
 };
@@ -116,22 +109,15 @@ export const mergeGuestCartOnLogin = async (userId: string, session: GuestSessio
   const sessionCart = getSessionCart(session);
   if (!sessionCart.items.length) return;
 
-  let dbCart = await Cart.findOne({ user: userId });
-  if (!dbCart) {
-    dbCart = await Cart.create({ user: userId, items: [] });
-  }
-
-  for (const guestItem of sessionCart.items) {
-    const existingIndex = dbCart.items.findIndex((item) => item.product.toString() === guestItem.product);
-
-    if (existingIndex !== -1) {
-      dbCart.items[existingIndex]!.quantity += guestItem.quantity;
-    } else {
-      dbCart.items.push({ product: new Types.ObjectId(guestItem.product), quantity: guestItem.quantity });
+  // Products deleted since they were added are left behind; the rest add to the account cart.
+  const found = await productsById(sessionCart.items.map((item) => item.product).filter(isId));
+  await getDb().transaction(async (tx) => {
+    const dbCart = await ensureCart(tx, userId, true);
+    for (const guestItem of sessionCart.items) {
+      if (found.has(guestItem.product)) await addCartLine(tx, dbCart.id, guestItem.product, guestItem.quantity);
     }
-  }
-
-  await dbCart.save();
+    await touchCart(tx, dbCart.id);
+  });
 
   session.cart = { items: [] };
   await new Promise<void>((resolve, reject) => {

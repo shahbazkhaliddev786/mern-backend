@@ -119,13 +119,13 @@ const fileTransport = () => {
 // MongoDB transport
 // --------------------
 const mongoTransport = (): MongoDBTransportInstance[] => {
-  if (process.env.VERCEL || !config.DATABASE_URL) {
+  if (process.env.VERCEL || !config.MONGODB_URL) {
     return [];
   }
   return [
     new transports.MongoDB({
       level: 'info',
-      db: config.DATABASE_URL as string,
+      db: config.MONGODB_URL,
       collection: 'application-logs',
       metaKey: 'meta',
       expireAfterSeconds: 3600 * 24 * 30, // 30 days

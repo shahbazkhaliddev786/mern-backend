@@ -1,4 +1,6 @@
-import { Order, Product, User } from '../models/index.js';
+import { count, sql } from 'drizzle-orm';
+import { getDb } from '../db/client.js';
+import { orders, products, users } from '../db/schema/index.js';
 
 const ORDER_STATUSES = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'] as const;
 
@@ -19,6 +21,9 @@ function computeChangePct(current: number, previous: number): number | null {
   return Number((((current - previous) / previous) * 100).toFixed(1));
 }
 
+const sumOf = (filter: ReturnType<typeof sql>) => sql<number>`coalesce(sum(${orders.total}) filter (where ${filter}), 0)`.mapWith(Number);
+const countOf = (filter: ReturnType<typeof sql>) => sql<number>`count(*) filter (where ${filter})`.mapWith(Number);
+
 export const getDashboardSummaryService = async () => {
   const now = new Date();
   const startCurrentPeriod = new Date(now.getTime() - 30 * DAY_MS);
@@ -26,68 +31,49 @@ export const getDashboardSummaryService = async () => {
 
   const chartStart = startOfUtcDay(new Date(now.getTime() - 13 * DAY_MS));
 
-  const [
-    revenueTotalAgg,
-    ordersTotal,
-    usersTotal,
-    productsTotal,
-    revenueCurrentAgg,
-    revenuePreviousAgg,
-    ordersCurrent,
-    ordersPrevious,
-    usersCurrent,
-    usersPrevious,
-    ordersByStatusAgg,
-    revenueSeriesAgg,
-  ] = await Promise.all([
-    Order.aggregate([
-      { $match: { status: { $ne: 'cancelled' } } },
-      { $group: { _id: null, sum: { $sum: '$total' } } },
-    ]),
-    Order.countDocuments({}),
-    User.countDocuments({}),
-    Product.countDocuments({}),
-    Order.aggregate([
-      { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: startCurrentPeriod } } },
-      { $group: { _id: null, sum: { $sum: '$total' } } },
-    ]),
-    Order.aggregate([
-      {
-        $match: {
-          status: { $ne: 'cancelled' },
-          createdAt: { $gte: startPreviousPeriod, $lt: startCurrentPeriod },
-        },
-      },
-      { $group: { _id: null, sum: { $sum: '$total' } } },
-    ]),
-    Order.countDocuments({ createdAt: { $gte: startCurrentPeriod } }),
-    Order.countDocuments({ createdAt: { $gte: startPreviousPeriod, $lt: startCurrentPeriod } }),
-    User.countDocuments({ createdAt: { $gte: startCurrentPeriod } }),
-    User.countDocuments({ createdAt: { $gte: startPreviousPeriod, $lt: startCurrentPeriod } }),
-    Order.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-    Order.aggregate([
-      { $match: { status: { $ne: 'cancelled' }, createdAt: { $gte: chartStart } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } },
-          sum: { $sum: '$total' },
-        },
-      },
-    ]),
+  const paid = sql`${orders.status} <> 'cancelled'`;
+  const orderCurrent = sql`${orders.createdAt} >= ${startCurrentPeriod}`;
+  const orderPrevious = sql`${orders.createdAt} >= ${startPreviousPeriod} and ${orders.createdAt} < ${startCurrentPeriod}`;
+  const day = sql<string>`to_char(${orders.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`;
+
+  const db = getDb();
+  const [[orderTotals], [userTotals], [productTotals], ordersByStatusRows, revenueSeriesRows] = await Promise.all([
+    db
+      .select({
+        revenue: sumOf(paid),
+        orders: count(),
+        revenueCurrent: sumOf(sql`${paid} and ${orderCurrent}`),
+        revenuePrevious: sumOf(sql`${paid} and ${orderPrevious}`),
+        ordersCurrent: countOf(orderCurrent),
+        ordersPrevious: countOf(orderPrevious),
+      })
+      .from(orders),
+    db
+      .select({
+        users: count(),
+        current: countOf(sql`${users.createdAt} >= ${startCurrentPeriod}`),
+        previous: countOf(sql`${users.createdAt} >= ${startPreviousPeriod} and ${users.createdAt} < ${startCurrentPeriod}`),
+      })
+      .from(users),
+    db.select({ products: count() }).from(products),
+    db.select({ status: orders.status, count: count() }).from(orders).groupBy(orders.status),
+    db
+      .select({ date: day, sum: sql<number>`sum(${orders.total})`.mapWith(Number) })
+      .from(orders)
+      .where(sql`${paid} and ${orders.createdAt} >= ${chartStart}`)
+      .groupBy(day),
   ]);
 
   const ordersByStatus: Record<string, number> = Object.fromEntries(
     ORDER_STATUSES.map((status) => [status, 0])
   );
-  for (const entry of ordersByStatusAgg as { _id: string; count: number }[]) {
-    if (entry._id && entry._id in ordersByStatus) {
-      ordersByStatus[entry._id] = entry.count;
+  for (const entry of ordersByStatusRows) {
+    if (entry.status in ordersByStatus) {
+      ordersByStatus[entry.status] = entry.count;
     }
   }
 
-  const revenueByDate = new Map<string, number>(
-    (revenueSeriesAgg as { _id: string; sum: number }[]).map((entry) => [entry._id, entry.sum])
-  );
+  const revenueByDate = new Map<string, number>(revenueSeriesRows.map((entry) => [entry.date, entry.sum]));
 
   const revenueSeries = Array.from({ length: 14 }, (_, i) => {
     const date = startOfUtcDay(new Date(chartStart.getTime() + i * DAY_MS));
@@ -95,15 +81,19 @@ export const getDashboardSummaryService = async () => {
     return { date: key, revenue: Number((revenueByDate.get(key) ?? 0).toFixed(2)) };
   });
 
-  const revenueCurrent = revenueCurrentAgg[0]?.sum ?? 0;
-  const revenuePrevious = revenuePreviousAgg[0]?.sum ?? 0;
+  const revenueCurrent = orderTotals?.revenueCurrent ?? 0;
+  const revenuePrevious = orderTotals?.revenuePrevious ?? 0;
+  const ordersCurrent = orderTotals?.ordersCurrent ?? 0;
+  const ordersPrevious = orderTotals?.ordersPrevious ?? 0;
+  const usersCurrent = userTotals?.current ?? 0;
+  const usersPrevious = userTotals?.previous ?? 0;
 
   return {
     totals: {
-      revenue: Number((revenueTotalAgg[0]?.sum ?? 0).toFixed(2)),
-      orders: ordersTotal,
-      users: usersTotal,
-      products: productsTotal,
+      revenue: Number((orderTotals?.revenue ?? 0).toFixed(2)),
+      orders: orderTotals?.orders ?? 0,
+      users: userTotals?.users ?? 0,
+      products: productTotals?.products ?? 0,
     },
     trends: {
       revenue: {

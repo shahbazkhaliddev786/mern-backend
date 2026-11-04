@@ -7,6 +7,7 @@ import session from 'express-session';
 import MongoStorePkg from 'connect-mongo';
 import mongoose from 'mongoose';
 import { handleStripeWebhook } from '../services/order.service.js';
+import { clientErrorMessage, describeError } from '../db/client.js';
 import logger from '../utils/logger.js';
 
 const helmet = helmetPkg as any;
@@ -62,8 +63,8 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
         await handleStripeWebhook(rawBody, sig);
         res.json({ received: true });
       } catch (err: any) {
-        logger.error('Webhook error', { error: err.message });
-        res.status(400).send(`Webhook Error: ${err.message}`);
+        logger.error('Webhook error', { error: describeError(err) });
+        res.status(400).send(`Webhook Error: ${clientErrorMessage(err, 'could not process the event')}`);
       }
     }
   );

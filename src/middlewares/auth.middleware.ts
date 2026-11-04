@@ -2,7 +2,10 @@ import type { Request, Response, NextFunction } from 'express';
 import { apiResponse } from '../utils/api.response.js';
 import jwt from 'jsonwebtoken';
 import config from '../config/config.js';
-import { User } from '../models/auth.model.js';
+import { eq } from 'drizzle-orm';
+import { getDb } from '../db/client.js';
+import { users } from '../db/schema/index.js';
+import { isId } from '../utils/ids.js';
 import logger from '../utils/logger.js';
 
 export const authMiddleware = async (
@@ -25,7 +28,12 @@ export const authMiddleware = async (
 
     const payload = jwt.verify(token, config.JWT_SECRET as string) as { userId: string };
 
-    const user = await User.findById(payload.userId).select('-password -refreshTokens');
+    const [user] = isId(payload.userId)
+      ? await getDb()
+          .select({ _id: users.id, email: users.email, name: users.name, profile: users.profile, role: users.role })
+          .from(users)
+          .where(eq(users.id, payload.userId))
+      : [];
     if (!user) {
       return apiResponse(res, 401, 'error', 'Invalid token — user not found');
     }
@@ -35,7 +43,7 @@ export const authMiddleware = async (
       _id: user._id,
       email: user.email,
       name: user.name,
-      profile: user.profile,
+      profile: user.profile ?? undefined,
       role: user.role,
     };
 

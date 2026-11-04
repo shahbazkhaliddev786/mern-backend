@@ -21,7 +21,9 @@ export async function connectDB(): Promise<Connection> {
     return cachedConnection;
   }
 
-  const dbUrl = config.DATABASE_URL || (process.env.DATABASE_URL as string);
+  // The store is on Postgres (spec 023); MongoDB keeps what hasn't moved yet.
+  const dbUrl = config.MONGODB_URL;
+  if (!dbUrl) throw new Error('MONGODB_URL is not set');
 
   try {
     const conn = await mongoose.connect(dbUrl, {

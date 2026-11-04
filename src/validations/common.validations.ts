@@ -2,6 +2,6 @@ import {param} from 'express-validator';
 
 export const IdValidation = [
   param('id') 
-    .isMongoId()
+    .isUUID()
     .withMessage('Invalid ID'),
 ];

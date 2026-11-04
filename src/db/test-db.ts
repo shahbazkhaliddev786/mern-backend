@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 import { MIGRATIONS_FOLDER, runMigrations } from './migrate.js';
-import { closeDb, useDatabase } from './client.js';
+import { closeDb, getPool, useDatabase } from './client.js';
 
 export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? '';
 
@@ -65,6 +65,36 @@ export async function createTestDatabase(label: string): Promise<TestDatabase> {
     drop: async () => {
       await closeDb();
       await withAdmin((admin) => admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`));
+    },
+  };
+}
+
+/**
+ * For concurrency tests: runs `setup` in a transaction on a connection of its own and keeps the
+ * transaction open, so whatever it locked stays locked. `releaseWhen(n)` waits until `n` other
+ * connections are stuck waiting on a lock, then rolls back. That makes a race happen every time.
+ */
+export async function holdLocks(url: string, setup: (client: pg.Client) => Promise<unknown>) {
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  await client.query('BEGIN');
+  await setup(client);
+  return {
+    releaseWhen: async (waiting: number, timeoutMs = 10_000) => {
+      const deadline = Date.now() + timeoutMs;
+      try {
+        for (;;) {
+          const { rows } = await getPool().query(
+            "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+          );
+          if (rows[0].n >= waiting) break;
+          if (Date.now() > deadline) throw new Error(`Only ${rows[0].n} of ${waiting} connections reached the lock`);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+      } finally {
+        await client.query('ROLLBACK');
+        await client.end();
+      }
     },
   };
 }

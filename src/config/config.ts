@@ -8,7 +8,11 @@ export default {
     ENV: process.env.ENV || 'development',
     PORT: process.env.PORT || 4000,
     SERVER_URL: process.env.SERVER_URL || `http://localhost:${process.env.PORT || 4000}`,
+    // PostgreSQL on Neon (spec 023): the pooled connection string.
     DATABASE_URL: process.env.DATABASE_URL || '',
+    // MongoDB, only until spec 023 moves the rest off it: the agent's memory, limits, feedback and
+    // knowledge, the login sessions and the log transport.
+    MONGODB_URL: process.env.MONGODB_URL || '',
     JWT_SECRET: process.env.JWT_SECRET || '',
     REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET || '',
     JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '',

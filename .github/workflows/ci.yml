@@ -110,11 +110,19 @@ jobs:
       atlas:
         image: mongodb/mongodb-atlas-local:8.0
         ports: ['27018:27017']
+      postgres:
+        image: pgvector/pgvector:pg17
+        ports: ['5432:5432']
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       # The job's own Atlas local: the knowledge is ingested here, never into production.
-      DATABASE_URL: mongodb://localhost:27018/agent_evals?directConnection=true
-      # The agent suite (spec 020) seeds its own database on the same Atlas local.
-      MONGO_URL: mongodb://localhost:27018/?directConnection=true
+      MONGODB_URL: mongodb://localhost:27018/agent_evals?directConnection=true
+      # The agent suite (spec 020) seeds its own test database on the job's Postgres.
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
       # The run's options, with the same cheap defaults if an input is left empty.

@@ -1,4 +1,4 @@
-// Request tracing (spec 017). Imported first by both entry points, so the HTTP and MongoDB
+// Request tracing (spec 017). Imported first by both entry points, so the HTTP, Postgres and MongoDB
 // instrumentations patch those modules before anything loads them. Keep this file free of
 // app imports beyond config: the logger's MongoDB transport would load the driver too early.
 //
@@ -12,6 +12,7 @@ import { NodeSDK, resources, tracing as sdkTracing } from '@opentelemetry/sdk-no
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
 import { MongoDBInstrumentation } from '@opentelemetry/instrumentation-mongodb';
+import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
 import { LangSmithOTLPTraceExporter } from 'langsmith/experimental/otel/exporter';
 import config from './config/config.js';
 
@@ -28,8 +29,13 @@ export function startTracing(exporters: sdkTracing.SpanExporter[], { immediate =
   sdk = new NodeSDK({
     resource: resources.resourceFromAttributes({ 'service.name': 'aljo-store-backend', 'deployment.environment.name': config.ENV }),
     spanProcessors: processors,
-    // No statement capture: MongoDB spans name the operation and collection, never query values.
-    instrumentations: [new HttpInstrumentation(), new MongoDBInstrumentation({ enhancedDatabaseReporting: false })],
+    // No query values: Postgres spans keep the SQL, whose values travel separately as parameters
+    // and aren't recorded; MongoDB spans name the operation and collection.
+    instrumentations: [
+      new HttpInstrumentation(),
+      new PgInstrumentation({ enhancedDatabaseReporting: false }),
+      new MongoDBInstrumentation({ enhancedDatabaseReporting: false }),
+    ],
   });
   // OpenTelemetry's registrations are process-wide and can't be replaced once set. Clearing them
   // first makes this the one in force (at start-up there's nothing to clear; in tests, a previous

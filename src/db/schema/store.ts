@@ -27,8 +27,12 @@ export interface ShippingAddress {
   phone?: string;
 }
 
-/** A line of an order or a pending checkout: a snapshot of the product when it was bought. */
+/**
+ * A line of an order or a pending checkout: a snapshot of the product when it was bought. Each
+ * line has its own `_id`, as the Mongo subdocuments did, so the API keeps returning one.
+ */
 export interface OrderItem {
+  _id: string;
   product: string;
   name: string;
   price: number;
@@ -64,13 +68,14 @@ export const otps = pgTable(
   'otps',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    email: text('email').notNull(),
+    // One code per address: a new code replaces the old one.
+    email: text('email').notNull().unique(),
     otp: text('otp').notNull(),
     // Expired rows are deleted on write and by `db:cleanup` (spec 023), as the TTL index did.
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     attempts: integer('attempts').notNull().default(0),
   },
-  (t) => [index('otps_email_idx').on(t.email), index('otps_expires_at_idx').on(t.expiresAt)],
+  (t) => [index('otps_expires_at_idx').on(t.expiresAt)],
 );
 
 export const categories = pgTable('categories', {
@@ -92,7 +97,8 @@ export const products = pgTable(
     name: text('name').notNull(),
     description: text('description').notNull(),
     price: money('price').notNull(),
-    sku: text('sku').notNull(),
+    // Optional: the Mongoose schema never stored it, and products are created without one.
+    sku: text('sku'),
     images: jsonb('images').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
     stock: integer('stock').notNull().default(0),
     categoryId: uuid('category_id')
@@ -145,9 +151,8 @@ export const orders = pgTable(
   'orders',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id),
+    // Kept when the customer deletes their account, as in Mongo, where the order stayed with no user.
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     items: jsonb('items').$type<OrderItem[]>().notNull(),
     subtotal: money('subtotal').notNull(),
     tax: money('tax').notNull().default(0),

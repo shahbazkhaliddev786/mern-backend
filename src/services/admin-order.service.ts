@@ -1,10 +1,11 @@
-import { Types } from 'mongoose';
-import { Order, Product, User } from '../models/index.js';
+import crypto from 'node:crypto';
+import { and, count, desc, eq, or, sql, type SQL } from 'drizzle-orm';
+import { getDb } from '../db/client.js';
+import { orders, products, users, type OrderItem } from '../db/schema/index.js';
 import { getOrderById } from './order.service.js';
 import { computeOrderTotal } from './pricing.service.js';
+import { isId } from '../utils/ids.js';
 import logger from '../utils/logger.js';
-
-const USER_POPULATE = { path: 'user', select: 'name email' };
 
 export const getAllOrdersService = async ({
   search,
@@ -17,42 +18,50 @@ export const getAllOrdersService = async ({
   page?: number;
   limit?: number;
 } = {}) => {
-  const query: any = {};
+  const conditions: SQL[] = [];
 
   if (status) {
-    query.status = status;
+    conditions.push(sql`${orders.status} = ${status}`);
   }
 
-  if (search && search.trim()) {
-    const trimmed = search.trim();
-
-    if (Types.ObjectId.isValid(trimmed)) {
-      query._id = trimmed;
-    } else {
-      const regex = new RegExp(trimmed, 'i');
-      const matchingUsers = await User.find({ $or: [{ name: regex }, { email: regex }] }).select('_id');
-      query.user = { $in: matchingUsers.map((u) => u._id) };
-    }
+  const trimmed = search?.trim();
+  if (trimmed) {
+    // An order id finds that order; anything else is a case-insensitive pattern on the customer.
+    conditions.push(isId(trimmed) ? eq(orders.id, trimmed) : or(sql`${users.name} ~* ${trimmed}`, sql`${users.email} ~* ${trimmed}`)!);
   }
+  const where = conditions.length ? and(...conditions) : undefined;
 
-  const totalItems = await Order.countDocuments(query);
+  const [counted] = await getDb().select({ total: count() }).from(orders).leftJoin(users, eq(orders.userId, users.id)).where(where);
+  const totalItems = counted?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalItems / limit));
   const skip = (page - 1) * limit;
 
-  const orders = await Order.find(query)
-    .populate(USER_POPULATE)
-    .sort({ createdAt: -1 })
-    .skip(skip)
+  const rows = await getDb()
+    .select({
+      _id: orders.id,
+      userId: users.id,
+      userName: users.name,
+      userEmail: users.email,
+      status: orders.status,
+      paymentStatus: orders.paymentStatus,
+      total: orders.total,
+      itemsCount: sql<number>`jsonb_array_length(${orders.items})`.mapWith(Number),
+      createdAt: orders.createdAt,
+    })
+    .from(orders)
+    .leftJoin(users, eq(orders.userId, users.id))
+    .where(where)
+    .orderBy(desc(orders.createdAt), desc(orders.id))
     .limit(limit)
-    .lean();
+    .offset(skip);
 
-  const summaries = orders.map((order: any) => ({
+  const summaries = rows.map(({ userId, userName, userEmail, ...order }) => ({
     _id: order._id,
-    user: order.user,
+    user: userId ? { _id: userId, name: userName!, email: userEmail! } : null,
     status: order.status,
     paymentStatus: order.paymentStatus,
     total: order.total,
-    itemsCount: order.items.length,
+    itemsCount: order.itemsCount,
     createdAt: order.createdAt,
   }));
 
@@ -96,87 +105,86 @@ export const adminUpdateOrderDetailsService = async (
   orderId: string,
   updates: AdminUpdateOrderDetailsInput
 ) => {
-  const order: any = await Order.findById(orderId);
-  if (!order) throw new Error('Order not found');
+  if (!isId(orderId)) throw new Error('Order not found');
 
-  if (updates.shippingAddress) {
-    Object.assign(order.shippingAddress, updates.shippingAddress);
-  }
+  // The order row is locked while it's read and rewritten, so two edits at once can't lose one.
+  await getDb().transaction(async (tx) => {
+    const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).for('update');
+    if (!order) throw new Error('Order not found');
 
-  if (updates.items) {
-    const existingByProduct = new Map(order.items.map((item: any) => [item.product.toString(), item]));
+    const shippingAddress = updates.shippingAddress ? { ...order.shippingAddress, ...updates.shippingAddress } : order.shippingAddress;
 
-    const resolvedItems = await Promise.all(
-      updates.items.map(async ({ product, quantity }) => {
-        const existing: any = existingByProduct.get(product);
+    let items: OrderItem[] = order.items;
+    if (updates.items) {
+      const existingByProduct = new Map(order.items.map((item) => [item.product, item]));
 
-        if (existing) {
+      // Each line gets a new `_id`, as Mongoose gave the replaced subdocuments.
+      items = await Promise.all(
+        updates.items.map(async ({ product, quantity }) => {
+          const existing = existingByProduct.get(product);
+
+          if (existing) {
+            return {
+              _id: crypto.randomUUID(),
+              product: existing.product,
+              name: existing.name,
+              price: existing.price,
+              quantity,
+              image: existing.image ?? '',
+            };
+          }
+
+          const [productRow] = isId(product) ? await tx.select().from(products).where(eq(products.id, product)) : [];
+          if (!productRow) throw new Error(`Product not found: ${product}`);
+
           return {
-            product: existing.product,
-            name: existing.name,
-            price: existing.price,
+            _id: crypto.randomUUID(),
+            product: productRow.id,
+            name: productRow.name,
+            price: productRow.price,
             quantity,
-            image: existing.image,
+            image: productRow.images[0] || '',
           };
-        }
+        })
+      );
+    }
 
-        const productDoc = await Product.findById(product);
-        if (!productDoc) throw new Error(`Product not found: ${product}`);
+    // Subtotal is always recomputed from the (server-resolved) line items.
+    // tax/shipping are an explicit, validated admin override (the request
+    // validation enforces non-negative numbers); when omitted they keep the
+    // order's current values. The total formula + rounding come from the shared
+    // pricing module so admin/customer/agent money all agree.
+    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const tax = updates.tax !== undefined ? Number(updates.tax) : order.tax;
+    const shipping = updates.shipping !== undefined ? Number(updates.shipping) : order.shipping;
 
-        return {
-          product: productDoc._id,
-          name: productDoc.name,
-          price: productDoc.price,
-          quantity,
-          image: productDoc.images?.[0] || '',
-        };
-      })
-    );
+    const before = { subtotal: order.subtotal, tax: order.tax, shipping: order.shipping, total: order.total };
+    const money = computeOrderTotal(subtotal, tax, shipping);
 
-    order.items = resolvedItems;
-  }
+    // Only the fields this edit changes are written, so a legacy order with an incomplete
+    // shippingAddress on file can still take a tax/shipping-only change.
+    await tx
+      .update(orders)
+      .set({ shippingAddress, items, subtotal: money.subtotal, tax: money.tax, shipping: money.shipping, total: money.total })
+      .where(eq(orders.id, orderId));
 
-  // Subtotal is always recomputed from the (server-resolved) line items.
-  // tax/shipping are an explicit, validated admin override (the request
-  // validation enforces non-negative numbers); when omitted they keep the
-  // order's current values. The total formula + rounding come from the shared
-  // pricing module so admin/customer/agent money all agree.
-  const subtotal = order.items.reduce(
-    (sum: number, item: any) => sum + item.price * item.quantity,
-    0
-  );
-  const tax = updates.tax !== undefined ? Number(updates.tax) : order.tax;
-  const shipping = updates.shipping !== undefined ? Number(updates.shipping) : order.shipping;
-
-  const before = { subtotal: order.subtotal, tax: order.tax, shipping: order.shipping, total: order.total };
-  const money = computeOrderTotal(subtotal, tax, shipping);
-
-  order.subtotal = money.subtotal;
-  order.tax = money.tax;
-  order.shipping = money.shipping;
-  order.total = money.total;
-
-  // Validate only the paths this edit actually changed. A full-document
-  // re-validation would reject legacy orders that have an incomplete
-  // shippingAddress on file, blocking even a tax/shipping-only change.
-  await order.save({ validateModifiedOnly: true });
-
-  // Audit: admin edits to order money are security-relevant write actions
-  // (observability.md §4). Flat scalar meta (matches the codebase's logging
-  // pattern) so the before/after totals are traceable.
-  logger.info('ADMIN_ORDER_DETAILS_UPDATED', {
-    orderId,
-    taxOverridden: updates.tax !== undefined,
-    shippingOverridden: updates.shipping !== undefined,
-    itemsReplaced: updates.items !== undefined,
-    subtotalBefore: before.subtotal,
-    subtotalAfter: money.subtotal,
-    taxBefore: before.tax,
-    taxAfter: money.tax,
-    shippingBefore: before.shipping,
-    shippingAfter: money.shipping,
-    totalBefore: before.total,
-    totalAfter: money.total,
+    // Audit: admin edits to order money are security-relevant write actions
+    // (observability.md §4). Flat scalar meta (matches the codebase's logging
+    // pattern) so the before/after totals are traceable.
+    logger.info('ADMIN_ORDER_DETAILS_UPDATED', {
+      orderId,
+      taxOverridden: updates.tax !== undefined,
+      shippingOverridden: updates.shipping !== undefined,
+      itemsReplaced: updates.items !== undefined,
+      subtotalBefore: before.subtotal,
+      subtotalAfter: money.subtotal,
+      taxBefore: before.tax,
+      taxAfter: money.tax,
+      shippingBefore: before.shipping,
+      shippingAfter: money.shipping,
+      totalBefore: before.total,
+      totalAfter: money.total,
+    });
   });
 
   return getOrderById(orderId);

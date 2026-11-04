@@ -3,6 +3,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { trace } from '@opentelemetry/api';
 import { tracing } from '@opentelemetry/sdk-node';
+import { PROMPT_VERSION } from './config';
 
 const memory = new tracing.InMemorySpanExporter();
 const { flushTraces, startTracing, stopTracing } = await import('../tracing');
@@ -49,7 +50,7 @@ beforeEach(() => memory.reset());
 describe('agent.turn span', () => {
   it('records an answered turn with ids and counts only', async () => {
     const span = await run([toolCall('search_products', { query: 'shoes' }), new AIMessage('Found some.')]);
-    expect(span.attributes).toMatchObject({ 'agent.kind': 'message', 'agent.outcome': 'answered', 'agent.tool_calls': 1, 'agent.escalated': false, 'agent.prompt_version': 6 });
+    expect(span.attributes).toMatchObject({ 'agent.kind': 'message', 'agent.outcome': 'answered', 'agent.tool_calls': 1, 'agent.escalated': false, 'agent.prompt_version': PROMPT_VERSION });
     expect(span.attributes['agent.user']).toMatch(/^[0-9a-f]{16}$/);
     expect(JSON.stringify(memory.getFinishedSpans().map((s) => s.attributes))).not.toContain('user-123');
   });

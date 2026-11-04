@@ -60,9 +60,20 @@ jobs:
         # Atlas search ($search, $vectorSearch) for the store-knowledge tests; its image has a health check.
         image: mongodb/mongodb-atlas-local:8.0
         ports: ['27018:27017']
+      postgres:
+        # PostgreSQL with pgvector (spec 023): the *.pg.test.ts suites run against it. The two Mongo
+        # services go once the move is complete.
+        image: pgvector/pgvector:pg17
+        ports: ['5432:5432']
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       MONGO_URL: mongodb://localhost:27017
       ATLAS_URL: mongodb://localhost:27018/?directConnection=true
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

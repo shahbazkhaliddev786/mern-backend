@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | Draft |
+| **Status** | In progress |
 | **Milestone** | Platform: before launch (M7 launch becomes spec 024) |
 | **Created** | 2026-11-04 |
 | **Updated** | 2026-11-04 |
@@ -152,28 +152,7 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 
 ## Open questions
 
-1. **Existing production data.**
-   - **Recommended:** if the live store has real customers or orders, copy them with the one-time script, dry-run on a Neon branch first.
-   - If it only holds test data, start fresh with the catalog seeded.
-   - Which is it?
-2. **Ids.**
-   - **Recommended:** UUIDs (`gen_random_uuid()`) for every table, keeping the `_id` field name in responses so the frontend doesn't change.
-   - The cost is that old links with 24-character ids (e.g. `/products/<id>`) stop working, which only matters if those links are already shared.
-   - **Alternative:** a text primary key that keeps copied rows' existing ids, with new rows getting UUIDs. That mixes two formats.
-3. **Logs.**
-   - **Recommended:** drop the database log transport. Vercel's logs and the traces (spec 017) already cover it, and logging into the app's own database adds load and cost.
-   - **Alternative:** a `logs` table.
-4. **Expiry without TTL indexes.**
-   - **Recommended:** every table that expired by TTL gets an `expires_at` column. Expired rows are deleted:
-     - a little at a time on the write paths (a bounded `DELETE … WHERE expires_at < now() LIMIT 100`)
-     - plus `npm run db:cleanup`, which the existing daily CI job runs once its secret is set
-   - Old agent checkpoints are pruned by their timestamp (30 days, as now).
-5. **Delivery.**
-   - **Recommended:** the seven stages above, as commits on `db-migration`, each leaving the suite green. Until a stage lands, its tests still run against MongoDB.
-   - One pull request into `main` at the end, after the Neon-branch check, and nothing merged half-done.
-6. **Database driver.**
-   - **Recommended:** `pg` (node-postgres) with Neon's pooled connection string, the same in production, tests and CI. `PostgresSaver`, `RateLimiterPostgres` and `connect-pg-simple` all expect it.
-   - **Alternative:** Neon's own serverless driver. It's slightly faster to connect cold, but needs a second driver for tests and for those libraries.
+_None — resolved 2026-11-04, see the decision log._
 
 ## Decision log
 
@@ -182,3 +161,5 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 | 2026-11-04 | Move from MongoDB to PostgreSQL on Neon, with Drizzle ORM and pgvector | Owner's decision |
 | 2026-11-04 | Work happens on the `db-migration` branch, created from `main` at `4a334c8` | Owner's request |
 | 2026-11-04 | This spec is 023, before launch; launch becomes 024 | The launch has to run on the new database |
+| 2026-11-04 | Approved with the defaults: UUID ids with responses keeping `_id`; the MongoDB log transport dropped; `expires_at` with cleanup on write plus `db:cleanup`; staged commits on `db-migration` then one pull request; the `pg` driver with Neon's pooled URL | Owner's choice |
+| 2026-11-04 | Existing data: the one-time copy script is built and dry-run against a Neon branch; running it on production is the owner's call | Whether the live store holds real customers or orders wasn't answered, and the script is the safe default either way |

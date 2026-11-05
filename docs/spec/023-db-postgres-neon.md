@@ -123,7 +123,7 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 - [x] **1. Foundation** (`9888fee`): Drizzle and drizzle-kit; `src/db/client.ts`; the schema; the first migration; local `pgvector` container; per-file test schemas; `npm run db:generate`, `db:migrate` and `db:studio`
 - [x] **2. Store data** (`42e60cf`): every model and service on Drizzle; the API's response shapes kept; the store's tests ported
 - [x] **3. Agent stores** (`1aa8d7a`): the checkpointer, claims, limits, feedback and samples; the agent's tests and the safety gate ported
-- [ ] **4. Knowledge search:** `knowledge_chunks` on pgvector + full-text; the ingest and retrieval ported; the retrieval tests ported
+- [x] **4. Knowledge search** (`bde67cb`): `knowledge_chunks` on pgvector + full-text; the ingest and retrieval ported; the retrieval tests ported
 - [ ] **5. The rest:** sessions, logs and expiry; MongoDB packages removed; CI moved to the Postgres service
 - [ ] **6. Data:** the move script and a dry run on a Neon branch (if chosen)
 - [ ] **7. Docs:** `.env.example`, setup, the design docs (`architecture.md`, `tech-stack.md`, `phases.md`) and the spec index
@@ -179,3 +179,9 @@ _None — resolved 2026-11-04, see the decision log._
 | 2026-11-05 | `@langchain/langgraph-checkpoint` moves to 1.2.x; the MongoDB checkpointer package is removed now, not in stage 5 | The Postgres checkpointer needs 1.2 (langgraph allows it), and nothing uses the Mongo one any more |
 | 2026-11-05 | Reads skip expired records before the cleanup exists | The TTL indexes removed them; an expired record should never be judged, listed or reused |
 | 2026-11-05 | The online-evals job's `ONLINE_EVALS_DATABASE_URL` becomes a Neon role allowed only on `agent_turn_samples` and `agent_feedback` | The same limited access it had on MongoDB; the owner sets it up when online evals are wanted |
+| 2026-11-05 | Migrations read `DATABASE_URL_UNPOOLED`, the name Vercel's Neon integration gives the direct connection; `DIRECT_DATABASE_URL` is gone | The owner's database came from that integration; nothing had set the old name |
+| 2026-11-05 | The connection URL's `sslmode=require` becomes `verify-full`, and `channel_binding=require` becomes `pg`'s `enableChannelBinding` (`e23c3d4`) | `pg` already checked certificates fully and warned on every start; it ignores libpq's channel binding setting. Channel binding was checked against a local TLS server with RSA and ECDSA certificates |
+| 2026-11-05 | The knowledge's meaning and word searches stay two queries, run side by side, instead of one | The word search runs while Voyage embeds the question, and the retrieval code keeps the seams its tests use |
+| 2026-11-05 | The word search matches any of the question's words (`plainto_tsquery` with OR), ranked by `ts_rank_cd` | As Atlas's text search did; matching every word misses natural questions |
+| 2026-11-05 | Lexical floor (fake embedder): 90% of the goldens on Postgres, 93% on Atlas | The one difference ("get in touch") shares no word with its answer; it was in Atlas's top 5 by the order of tied scores. The real embedder is judged by `eval:knowledge` |
+| 2026-11-05 | `npm run agent:setup` is removed, and CI's MongoDB services go in stage 4 | The migration creates the search indexes, and no test needs MongoDB any more |

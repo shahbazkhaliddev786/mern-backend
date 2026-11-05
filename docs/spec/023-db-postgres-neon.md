@@ -5,7 +5,7 @@
 | **Status** | In progress |
 | **Milestone** | Platform: before launch (M7 launch becomes spec 024) |
 | **Created** | 2026-11-04 |
-| **Updated** | 2026-11-04 |
+| **Updated** | 2026-11-05 |
 | **Closed by** | — |
 | **Repo** | `mern-backend` (branch `db-migration`); `mern-frontend` only if the open questions need it |
 
@@ -122,7 +122,7 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 
 - [x] **1. Foundation** (`9888fee`): Drizzle and drizzle-kit; `src/db/client.ts`; the schema; the first migration; local `pgvector` container; per-file test schemas; `npm run db:generate`, `db:migrate` and `db:studio`
 - [x] **2. Store data** (`42e60cf`): every model and service on Drizzle; the API's response shapes kept; the store's tests ported
-- [ ] **3. Agent stores:** the checkpointer, claims, limits, feedback and samples; the agent's tests and the safety gate ported
+- [x] **3. Agent stores** (`1aa8d7a`): the checkpointer, claims, limits, feedback and samples; the agent's tests and the safety gate ported
 - [ ] **4. Knowledge search:** `knowledge_chunks` on pgvector + full-text; the ingest and retrieval ported; the retrieval tests ported
 - [ ] **5. The rest:** sessions, logs and expiry; MongoDB packages removed; CI moved to the Postgres service
 - [ ] **6. Data:** the move script and a dry run on a Neon branch (if chosen)
@@ -174,3 +174,8 @@ _None — resolved 2026-11-04, see the decision log._
 | 2026-11-04 | `DATABASE_URL` is Postgres from stage 2; MongoDB reads `MONGODB_URL` until stage 5 removes it | The store moved first, while the agent's stores, sessions and logs are still on MongoDB |
 | 2026-11-04 | Postgres tracing (`instrumentation-pg`) comes in stage 2, not 5 | The checkout trace (spec 017) has to keep reaching the database |
 | 2026-11-04 | Safety case 3 checks only what the tools returned | An all-digit order-number suffix could appear in the attacker's own message (CI run #33) |
+| 2026-11-05 | `npm run db:migrate` also runs the checkpointer's setup | PostgresSaver keeps its own tables and needs its setup run once; one command then prepares a database, and test templates get them too |
+| 2026-11-05 | One `rate_limits` table for every limiter, created by the migration | No request has to create a table; each limiter's key prefix keeps its counters apart |
+| 2026-11-05 | `@langchain/langgraph-checkpoint` moves to 1.2.x; the MongoDB checkpointer package is removed now, not in stage 5 | The Postgres checkpointer needs 1.2 (langgraph allows it), and nothing uses the Mongo one any more |
+| 2026-11-05 | Reads skip expired records before the cleanup exists | The TTL indexes removed them; an expired record should never be judged, listed or reused |
+| 2026-11-05 | The online-evals job's `ONLINE_EVALS_DATABASE_URL` becomes a Neon role allowed only on `agent_turn_samples` and `agent_feedback` | The same limited access it had on MongoDB; the owner sets it up when online evals are wanted |

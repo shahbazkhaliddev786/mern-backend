@@ -1,6 +1,6 @@
-# Backend CI (spec 019). `checks` runs on every push: lint, build and every test, with MongoDB and
-# Atlas local as services so the database suites and the safety gate (spec 018) run instead of
-# skipping. `judged-evals` spends real tokens, so it runs only when started by hand (no schedule:
+# Backend CI (spec 019). `checks` runs on every push: lint, build and every test, with PostgreSQL
+# and pgvector as a service (spec 023) so the database suites and the safety gate (spec 018) run
+# instead of skipping. `judged-evals` spends real tokens, so it runs only when started by hand (no schedule:
 # the API budget is small), once the API keys are repository secrets, with cheap defaults that a
 # manual run can raise. `online-evals` (spec 021) judges a sample of live turns daily with Haiku,
 # once its own secrets are set.
@@ -50,19 +50,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
-      mongo:
-        image: mongo:7
-        ports: ['27017:27017']
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
-          --health-interval 5s --health-timeout 5s --health-retries 20
-      atlas:
-        # Atlas search ($search, $vectorSearch) for the store-knowledge tests; its image has a health check.
-        image: mongodb/mongodb-atlas-local:8.0
-        ports: ['27018:27017']
       postgres:
-        # PostgreSQL with pgvector (spec 023): the *.pg.test.ts suites run against it. The two Mongo
-        # services go once the move is complete.
+        # PostgreSQL with pgvector (spec 023): every *.pg.test.ts file clones its own database here.
         image: pgvector/pgvector:pg17
         ports: ['5432:5432']
         env:
@@ -71,8 +60,6 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      MONGO_URL: mongodb://localhost:27017
-      ATLAS_URL: mongodb://localhost:27018/?directConnection=true
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
@@ -107,9 +94,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     services:
-      atlas:
-        image: mongodb/mongodb-atlas-local:8.0
-        ports: ['27018:27017']
       postgres:
         image: pgvector/pgvector:pg17
         ports: ['5432:5432']
@@ -119,9 +103,9 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 20
     env:
-      # The job's own Atlas local: the knowledge is ingested here, never into production.
-      MONGODB_URL: mongodb://localhost:27018/agent_evals?directConnection=true
-      # The agent suite (spec 020) seeds its own test database on the job's Postgres.
+      # The job's own Postgres: the knowledge is ingested here, never into production. The agent
+      # suite (spec 020) clones its own test databases on the same server.
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
@@ -153,8 +137,8 @@ jobs:
         name: Install
         run: npm ci
       - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
-        name: Search indexes
-        run: npm run agent:setup
+        name: Database (tables and search indexes)
+        run: npm run db:migrate
       - if: steps.keys.outputs.present == 'true' && env.RUN_KNOWLEDGE == 'true'
         name: Ingest the store knowledge
         run: npm run agent:ingest

@@ -18,7 +18,7 @@ npm run agent:ingest            # adds, updates and removes chunks; unchanged ch
 npm run agent:ingest -- --dry-run   # just lists the chunks and the skipped TODOs, no keys needed
 ```
 
-The search indexes come from `npm run agent:setup` (once per database; Atlas only). When a `TODO(owner)` is answered, also add a golden for it in `evals/knowledge.goldens.json`: a test fails until every live chunk has one.
+The search indexes (pgvector for meaning, full text for words) come with the database tables from `npm run db:migrate`. When a `TODO(owner)` is answered, also add a golden for it in `evals/knowledge.goldens.json`: a test fails until every live chunk has one.
 
 ## Owner checklist
 

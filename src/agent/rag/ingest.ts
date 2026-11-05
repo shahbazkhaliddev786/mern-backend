@@ -1,27 +1,17 @@
-// Loads the store-knowledge files into the knowledge collection (spec 013). Run with
+// Loads the store-knowledge files into the knowledge_chunks table (spec 013, spec 023). Run with
 // `npm run agent:ingest` after the files change. Running it again with no changes makes no
 // Claude or Voyage calls: a chunk whose content hash is unchanged keeps its context and embedding.
 
-import type { mongo } from 'mongoose';
+import { inArray, sql } from 'drizzle-orm';
+import { getDb, type Executor } from '../../db/client.js';
+import { knowledgeChunks } from '../../db/schema/index.js';
 import { chunkDocument, chunkKnowledge, type KnowledgeChunk, type KnowledgeFile } from './chunk.js';
 import type { ContextFn } from './context.js';
 import type { EmbedFn } from './voyage.js';
 
-export interface KnowledgeDoc {
-  _id: string;
-  file: string;
-  title: string;
-  question: string;
-  text: string;
-  /** Haiku's one-line context, or null when it couldn't be written. */
-  context: string | null;
-  embedding: number[];
-  contentHash: string;
-  updatedAt: Date;
-}
-
 export interface IngestDeps {
-  collection: mongo.Collection<KnowledgeDoc>;
+  /** The app's database unless given. */
+  db?: Executor;
   embed: EmbedFn;
   writeContext: ContextFn;
 }
@@ -37,10 +27,14 @@ export interface IngestReport {
 
 // Voyage takes up to 1,000 texts per request; smaller batches keep each request quick.
 const EMBED_BATCH = 64;
+// Rows per insert statement: well under Postgres's limit on query parameters.
+const WRITE_BATCH = 100;
 
-export async function ingestKnowledge(files: KnowledgeFile[], { collection, embed, writeContext }: IngestDeps): Promise<IngestReport> {
+export async function ingestKnowledge(files: KnowledgeFile[], { db = getDb(), embed, writeContext }: IngestDeps): Promise<IngestReport> {
   const { chunks, skipped } = chunkKnowledge(files);
-  const stored = new Map((await collection.find({}, { projection: { contentHash: 1 } }).toArray()).map((doc) => [doc._id, doc.contentHash]));
+  const stored = new Map(
+    (await db.select({ id: knowledgeChunks.id, contentHash: knowledgeChunks.contentHash }).from(knowledgeChunks)).map((row) => [row.id, row.contentHash]),
+  );
   const changed = chunks.filter((chunk) => stored.get(chunk.id) !== chunk.contentHash);
 
   const fileText = new Map(files.map((file) => [file.name, file.content]));
@@ -54,29 +48,44 @@ export async function ingestKnowledge(files: KnowledgeFile[], { collection, embe
   }
 
   const now = new Date();
-  await Promise.all(
-    changed.map((chunk: KnowledgeChunk, i) =>
-      collection.replaceOne(
-        { _id: chunk.id },
-        {
-          file: chunk.file,
-          title: chunk.title,
-          question: chunk.question,
-          text: chunk.text,
-          context: contexts[i] ?? null,
-          embedding: embeddings[i] as number[],
-          contentHash: chunk.contentHash,
-          updatedAt: now,
-        },
-        { upsert: true },
-      ),
-    ),
-  );
+  const rows = changed.map((chunk: KnowledgeChunk, i) => ({
+    id: chunk.id,
+    file: chunk.file,
+    title: chunk.title,
+    question: chunk.question,
+    text: chunk.text,
+    context: contexts[i] ?? null,
+    embedding: embeddings[i] as number[],
+    contentHash: chunk.contentHash,
+    updatedAt: now,
+  }));
 
   // Gone from the files, or back to TODO(owner): no longer an answer.
   const live = new Set(chunks.map((chunk) => chunk.id));
   const removed = [...stored.keys()].filter((id) => !live.has(id));
-  if (removed.length > 0) await collection.deleteMany({ _id: { $in: removed } });
+
+  // The knowledge changes all at once or not at all: a failed run leaves the last good version.
+  await db.transaction(async (tx) => {
+    for (let start = 0; start < rows.length; start += WRITE_BATCH) {
+      await tx
+        .insert(knowledgeChunks)
+        .values(rows.slice(start, start + WRITE_BATCH))
+        .onConflictDoUpdate({
+          target: knowledgeChunks.id,
+          set: {
+            file: sql`excluded.file`,
+            title: sql`excluded.title`,
+            question: sql`excluded.question`,
+            text: sql`excluded.text`,
+            context: sql`excluded.context`,
+            embedding: sql`excluded.embedding`,
+            contentHash: sql`excluded.content_hash`,
+            updatedAt: sql`excluded.updated_at`,
+          },
+        });
+    }
+    if (removed.length > 0) await tx.delete(knowledgeChunks).where(inArray(knowledgeChunks.id, removed));
+  });
 
   return {
     added: changed.filter((chunk) => !stored.has(chunk.id)).map((chunk) => chunk.id),

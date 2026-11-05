@@ -1,19 +1,17 @@
-// Store knowledge on real Atlas search (spec 013): the indexes, both searches and fusion.
-// Runs only when ATLAS_URL points at Atlas or the mongodb/mongodb-atlas-local image, e.g.
-//   ATLAS_URL="mongodb://127.0.0.1:27018/?directConnection=true"
-// The embedder is a bag-of-words hash, so this checks a lexical floor; the real embedder and
-// the rerank are judged by `npm run eval:knowledge`.
+// Store knowledge on Postgres (spec 013, spec 023): pgvector by meaning, full-text search by
+// words, their indexes, and fusion. The embedder is a bag-of-words hash, so this checks a lexical
+// floor; the real embedder and the rerank are judged by `npm run eval:knowledge`.
 
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import mongoose from 'mongoose';
+import { getDb, getPool } from '../../db/client.js';
+import { createTestDatabase, TEST_DATABASE_URL, type TestDatabase } from '../../db/test-db.js';
 import { KNOWLEDGE } from '../config.js';
 import { readKnowledgeFiles } from './chunk.js';
-import { ensureKnowledgeIndexes, waitForKnowledgeIndexes } from './indexes.js';
-import { ingestKnowledge, type KnowledgeDoc } from './ingest.js';
-import { createRetrievalDeps, fuseRankings, searchKnowledge, type RetrievalDeps } from './retrieve.js';
+import { ingestKnowledge } from './ingest.js';
+import { createRetrievalDeps, fuseRankings, searchKnowledge, textSearchQuery, vectorSearchQuery, type RetrievalDeps } from './retrieve.js';
 
-const ATLAS_URL = process.env.ATLAS_URL;
+if (process.env.CI === 'true' && !TEST_DATABASE_URL) throw new Error('The Postgres tests need TEST_DATABASE_URL in CI (spec 023).');
 
 const STOP = new Set(['a', 'an', 'the', 'i', 'my', 'do', 'you', 'your', 'is', 'are', 'can', 'to', 'of', 'in', 'on', 'and', 'or', 'what', 'how', 'it']);
 const words = (text: string) => text.toLowerCase().match(/[a-z0-9]+/g)?.filter((word) => !STOP.has(word)) ?? [];
@@ -50,42 +48,50 @@ interface Golden {
   expectedChunkIds: string[];
 }
 
-describe.skipIf(!ATLAS_URL)('store knowledge on Atlas search', () => {
-  let db: mongoose.mongo.Db;
-  let collection: mongoose.mongo.Collection<KnowledgeDoc>;
+/** The plan Postgres picks for one of the searches, with sequential scans ruled out. */
+async function explain(query: { toSQL(): { sql: string; params: unknown[] } }): Promise<string> {
+  const { sql, params } = query.toSQL();
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    // With 27 rows a scan of the table wins; this asks whether the index can serve the query at all.
+    await client.query('SET LOCAL enable_seqscan = off');
+    const { rows } = await client.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${sql}`, params);
+    return rows.map((row) => row['QUERY PLAN']).join('\n');
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
+}
+
+describe.skipIf(!TEST_DATABASE_URL)('store knowledge on pgvector and Postgres full-text search', () => {
+  let testDb: TestDatabase;
   let deps: RetrievalDeps;
 
   beforeAll(async () => {
-    const connection = await mongoose.createConnection(ATLAS_URL as string, { dbName: 'knowledge_atlas_test' }).asPromise();
-    db = connection.db!;
-    await db.dropDatabase();
-    collection = db.collection<KnowledgeDoc>(KNOWLEDGE.collection);
+    testDb = await createTestDatabase('knowledge');
     await ingestKnowledge(await readKnowledgeFiles(), {
-      collection,
       writeContext: async () => null,
       embed: async (texts) => texts.map(fakeEmbed),
     });
-    deps = createRetrievalDeps(collection, { embed: async (texts) => texts.map(fakeEmbed), rerank: fakeRerank });
+    deps = createRetrievalDeps({ embed: async (texts) => texts.map(fakeEmbed), rerank: fakeRerank });
   }, 60_000);
 
   afterAll(async () => {
-    await db?.dropDatabase();
-    await mongoose.disconnect();
+    await testDb?.drop();
   });
 
-  it('creates both search indexes once, and a second run changes nothing', async () => {
-    expect((await ensureKnowledgeIndexes(db)).sort()).toEqual([KNOWLEDGE.textIndex, KNOWLEDGE.vectorIndex]);
-    expect(await ensureKnowledgeIndexes(db)).toEqual([]);
-    await waitForKnowledgeIndexes(db);
-    // The indexes catch up with the documents shortly after they answer queries.
-    for (let i = 0; i < 60; i++) {
-      const [text, vector] = await Promise.all([deps.textSearch('shipping', 20), deps.vectorSearch(fakeEmbed('shipping'), 20)]);
-      if (text.length > 0 && vector.length === 20) break;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  }, 180_000);
+  it("each search can use the migration's index: HNSW for meaning, GIN for words", async () => {
+    expect(await explain(vectorSearchQuery(getDb(), fakeEmbed('shipping'), KNOWLEDGE.candidates))).toContain('knowledge_chunks_embedding_idx');
+    expect(await explain(textSearchQuery(getDb(), 'returning products', KNOWLEDGE.candidates))).toContain('knowledge_chunks_search_idx');
+  });
 
-  it('keyword search matches word forms (English analyzer)', async () => {
+  it('keyword search matches any of the words, and none but stop words finds nothing', async () => {
+    expect((await deps.textSearch('shipping', 20)).length).toBeGreaterThan(0);
+    expect(await deps.textSearch('what is the', 20)).toEqual([]);
+  });
+
+  it('keyword search matches word forms (English stemming)', async () => {
     const hits = await deps.textSearch('returning products', 5);
     expect(hits[0]?.id).toBe('returns.md#how-long-do-i-have-to-return-something');
   });

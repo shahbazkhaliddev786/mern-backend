@@ -20,9 +20,6 @@ export const AGENT_EFFORT = {
 
 // Store-knowledge retrieval (spec 013). Starting points, tuned with the knowledge goldens.
 export const KNOWLEDGE = {
-  collection: 'knowledge_chunks',
-  vectorIndex: 'knowledge_vector',
-  textIndex: 'knowledge_text',
   embedModel: 'voyage-3.5',
   dimensions: 1024,
   rerankModel: 'rerank-2.5',

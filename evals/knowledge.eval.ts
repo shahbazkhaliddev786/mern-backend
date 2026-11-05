@@ -1,17 +1,17 @@
 // Store-knowledge evals (spec 013, evals.md): the real agent model and tool, judged by Opus.
-// Needs ANTHROPIC_API_KEY, VOYAGE_API_KEY and MONGODB_URL pointing at an Atlas database where
-// `npm run agent:setup` and `npm run agent:ingest` have run. Skipped without them.
+// Needs ANTHROPIC_API_KEY, VOYAGE_API_KEY and DATABASE_URL pointing at a database where
+// `npm run db:migrate` and `npm run agent:ingest` have run. Skipped without them.
 //   npm run eval:knowledge
 
 import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from '@langchain/core/messages';
 import { MemorySaver } from '@langchain/langgraph';
-import mongoose from 'mongoose';
 import { AnthropicModel } from 'deepeval/models';
 import { ContextualPrecisionMetric, ContextualRecallMetric, ContextualRelevancyMetric, FaithfulnessMetric } from 'deepeval/metrics';
 import { LLMTestCase } from 'deepeval/test-case';
 import config from '../src/config/config.js';
+import { closeDb } from '../src/db/client.js';
 import { getAgentConfig } from '../src/agent/config.js';
 import { buildAgentGraph, createChatModel, RECURSION_LIMIT } from '../src/agent/graph.js';
 import { visibleText } from '../src/agent/stream.js';
@@ -29,7 +29,7 @@ interface Golden {
 
 // evals.md thresholds, on the mean over the answerable goldens.
 const THRESHOLDS = { recall: 0.8, precision: 0.7, faithfulness: 0.9 };
-const READY = Boolean(config.ANTHROPIC_API_KEY && config.VOYAGE_API_KEY && config.MONGODB_URL);
+const READY = Boolean(config.ANTHROPIC_API_KEY && config.VOYAGE_API_KEY && config.DATABASE_URL);
 
 interface Turn {
   answer: string;
@@ -72,9 +72,8 @@ describe.skipIf(!READY)('store knowledge evals', () => {
 
   beforeAll(async () => {
     goldens = (JSON.parse(await readFile('evals/knowledge.goldens.json', 'utf8')) as { goldens: Golden[] }).goldens;
-    await mongoose.connect(config.MONGODB_URL);
   });
-  afterAll(() => mongoose.disconnect());
+  afterAll(() => closeDb());
 
   it('retrieves the right passages and answers only from them', async () => {
     const scores = { recall: [] as number[], precision: [] as number[], relevancy: [] as number[], faithfulness: [] as number[] };

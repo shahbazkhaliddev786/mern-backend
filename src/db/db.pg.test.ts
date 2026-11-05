@@ -37,7 +37,7 @@ describe.skipIf(!TEST_DATABASE_URL)('the Postgres schema (spec 023)', () => {
     await testDb?.drop();
   });
 
-  it('applies every migration to a fresh database, with pgvector enabled', async () => {
+  it("applies every migration to a fresh database, with pgvector and the checkpointer's tables", async () => {
     const { rows: extensions } = await getPool().query("SELECT extname FROM pg_extension WHERE extname = 'vector'");
     expect(extensions).toHaveLength(1);
     const { rows } = await getPool().query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'");
@@ -49,12 +49,18 @@ describe.skipIf(!TEST_DATABASE_URL)('the Postgres schema (spec 023)', () => {
       'cart_items',
       'carts',
       'categories',
+      // The checkpointer's own tables, from its setup (spec 023, stage 3).
+      'checkpoint_blobs',
+      'checkpoint_migrations',
+      'checkpoint_writes',
+      'checkpoints',
       'knowledge_chunks',
       'orders',
       'otps',
       'pending_checkouts',
       'pending_uploads',
       'products',
+      'rate_limits',
       'users',
     ]);
   });

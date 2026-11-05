@@ -208,7 +208,7 @@ describe('per-user write limits (spec 014)', () => {
   });
 
   it('refuses, without running, when the limit store fails', async () => {
-    const broken = { consume: async () => Promise.reject(new Error('mongo down')) };
+    const broken = { consume: async () => Promise.reject(new Error('database down')) };
     setAgentLimiters({ ...memoryLimiters(), writes: broken });
     const result = await call(A, 'add_to_cart', { product_id: PRODUCT_ID });
     expect(result.error).toBe("I can't make changes right now. Please try again in a moment.");

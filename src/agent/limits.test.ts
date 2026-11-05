@@ -52,7 +52,7 @@ describe('consumeBudgets', () => {
   });
 
   it('throws LimitStoreError when the store fails', async () => {
-    setAgentLimiters({ ...memoryLimiters(), writes: { consume: async () => Promise.reject(new Error('mongo down')), reward: async () => Promise.reject(new Error('mongo down')) } });
+    setAgentLimiters({ ...memoryLimiters(), writes: { consume: async () => Promise.reject(new Error('database down')), reward: async () => Promise.reject(new Error('database down')) } });
     await expect(consumeBudgets('u1', ['writes'])).rejects.toThrow(LimitStoreError);
   });
 });

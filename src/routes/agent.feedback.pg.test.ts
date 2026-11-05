@@ -1,4 +1,4 @@
-// Spec 021 over HTTP, against MongoDB: the reply id on `done`, thumbs up/down on a reply, and
+// Spec 021 over HTTP, against Postgres: the reply id on `done`, thumbs up/down on a reply, and
 // sampling of finished turns for the online judge.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -6,7 +6,6 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import express, { type RequestHandler } from 'express';
 import { AIMessage } from '@langchain/core/messages';
-import mongoose from 'mongoose';
 
 const { CARD } = vi.hoisted(() => {
   // The auth service checks Cloudinary's settings when it loads; the controllers import it.
@@ -28,7 +27,10 @@ import config from '../config/config';
 import { memoryLimiters, ScriptedChatModel, toolCall } from '../agent/test-utils';
 import { setAgentLimiters } from '../agent/limits';
 import { createCheckpointer, claimConfirmation } from '../agent/checkpointer';
-import { feedbackRecords, turnSamples, type TurnSample } from '../agent/online-evals';
+import type { TurnSample } from '../agent/online-evals';
+import { getDb } from '../db/client';
+import { agentFeedback, agentTurnSamples } from '../db/schema/index';
+import { createTestDatabase, TEST_DATABASE_URL, type TestDatabase } from '../db/test-db';
 import type { ChatDeps } from '../agent/chat.service';
 import { createAgentRouter } from './agent.routes';
 
@@ -68,22 +70,25 @@ async function chat(message: string, user = 'alice', threadId?: string) {
   return { events, done: events.find((e) => e.event === 'done')!.data };
 }
 const feedback = (body: Record<string, unknown>, user = 'alice') => post('/feedback', body, user);
+const votes = () => getDb().select().from(agentFeedback);
+const samples = () => getDb().select().from(agentTurnSamples);
 
-describe.skipIf(!process.env.MONGO_URL)('agent feedback and sampling (spec 021)', () => {
+if (process.env.CI === 'true' && !TEST_DATABASE_URL) throw new Error('The Postgres tests need TEST_DATABASE_URL in CI (spec 023).');
+
+describe.skipIf(!TEST_DATABASE_URL)('agent feedback and sampling (spec 021)', () => {
+  let testDb: TestDatabase;
   beforeAll(async () => {
-    await mongoose.connect(`${process.env.MONGO_URL}/agent_feedback_test`);
-    await mongoose.connection.dropDatabase();
+    testDb = await createTestDatabase('agent_feedback');
     const app = express();
     app.use(express.json());
     app.use('/agent', createAgentRouter({ deps, auth: testAuth }));
     server = http.createServer(app);
     await new Promise<void>((resolve) => server.listen(0, resolve));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/agent`;
-  });
+  }, 60_000);
   afterAll(async () => {
     server?.close();
-    await mongoose.connection.dropDatabase();
-    await mongoose.disconnect();
+    await testDb?.drop();
   });
   beforeEach(async () => {
     Object.assign(config, { AGENT_ENABLED: 'true', ANTHROPIC_API_KEY: 'test-key', VOYAGE_API_KEY: 'test-voyage-key', LANGSMITH_TRACING: 'false' });
@@ -93,8 +98,8 @@ describe.skipIf(!process.env.MONGO_URL)('agent feedback and sampling (spec 021)'
       const { saveTurnSample } = await import('../agent/online-evals');
       await saveTurnSample(sample);
     };
-    await turnSamples().deleteMany({});
-    await feedbackRecords().deleteMany({});
+    await getDb().delete(agentTurnSamples);
+    await getDb().delete(agentFeedback);
   });
 
   describe('the reply id on done', () => {
@@ -127,12 +132,13 @@ describe.skipIf(!process.env.MONGO_URL)('agent feedback and sampling (spec 021)'
     it('stores a vote, and a changed vote replaces it (a thumbs-down keeps a redacted snapshot)', async () => {
       const { threadId, replyId } = await answered();
       expect((await feedback({ threadId, replyId, rating: 'up' })).status).toBe(200);
-      expect(await feedbackRecords().find({}).toArray()).toMatchObject([{ userId: 'alice', threadId, replyId, rating: 'up' }]);
+      expect(await votes()).toMatchObject([{ userId: 'alice', threadId, replyId, rating: 'up' }]);
 
       const down = await feedback({ threadId, replyId, rating: 'down', reason: 'wrong_answer', comment: 'That mug is out of stock.' });
       expect(await down.json()).toEqual({ status: 'success', message: 'Thanks for the feedback' });
-      const [record] = await feedbackRecords().find({}).toArray();
-      expect(await feedbackRecords().countDocuments({})).toBe(1);
+      const all = await votes();
+      const [record] = all;
+      expect(all).toHaveLength(1);
       expect(record).toMatchObject({ rating: 'down', reason: 'wrong_answer', comment: 'That mug is out of stock.' });
       expect(record!.snapshot).toMatchObject({ message: 'blue mugs?', reply: 'The Blue Glazed Mug is $24.' });
       expect(JSON.stringify(record!.snapshot)).not.toContain(CARD);
@@ -140,24 +146,22 @@ describe.skipIf(!process.env.MONGO_URL)('agent feedback and sampling (spec 021)'
       expect(record!.expiresAt.getTime() - record!.updatedAt.getTime()).toBe(90 * 24 * 60 * 60 * 1000);
 
       await feedback({ threadId, replyId, rating: 'up' });
-      const [changed] = await feedbackRecords().find({}).toArray();
-      expect(changed).toMatchObject({ rating: 'up' });
-      expect(changed).not.toHaveProperty('snapshot');
-      expect(changed).not.toHaveProperty('comment');
+      const [changed] = await votes();
+      expect(changed).toMatchObject({ rating: 'up', snapshot: null, comment: null, reason: null });
     });
 
     it("can't rate another customer's reply, or a reply that doesn't exist", async () => {
       const { threadId, replyId } = await answered('alice');
       expect((await feedback({ threadId, replyId, rating: 'down' }, 'mallory')).status).toBe(404);
       expect((await feedback({ threadId, replyId: 'not-a-reply', rating: 'up' })).status).toBe(404);
-      expect(await feedbackRecords().countDocuments({})).toBe(0);
+      expect(await votes()).toHaveLength(0);
     });
 
     it('refuses a card number in the comment, and stores nothing', async () => {
       const { threadId, replyId } = await answered();
       const response = await feedback({ threadId, replyId, rating: 'down', comment: `charge ${CARD}` });
       expect(response.status).toBe(400);
-      expect(await feedbackRecords().countDocuments({})).toBe(0);
+      expect(await votes()).toHaveLength(0);
     });
 
     it('validates the body and needs a signed-in customer', async () => {
@@ -188,14 +192,14 @@ describe.skipIf(!process.env.MONGO_URL)('agent feedback and sampling (spec 021)'
     it('saves every finished turn at rate 1, redacted, under a hashed user', async () => {
       sampleRate = 1;
       const { done } = await turn();
-      const samples = await turnSamples().find({}).toArray();
-      expect(samples).toHaveLength(1);
-      const sample = samples[0] as TurnSample;
+      const saved = await samples();
+      expect(saved).toHaveLength(1);
+      const sample = saved[0] as TurnSample;
       expect(sample).toMatchObject({ threadId: done.threadId, replyId: done.replyId, outcome: 'answered', escalated: false });
       expect(sample.user).not.toBe('alice');
       expect(sample.snapshot.calls.map((c) => c.name)).toEqual(['search_products']);
       expect(JSON.stringify(sample)).not.toContain(CARD);
-      expect(sample.judgedAt).toBeUndefined();
+      expect(sample.judgedAt).toBeNull();
     });
 
     it('saves nothing at rate 0, or while a confirmation waits', async () => {
@@ -203,7 +207,7 @@ describe.skipIf(!process.env.MONGO_URL)('agent feedback and sampling (spec 021)'
       sampleRate = 1;
       model = new ScriptedChatModel([toolCall('clear_cart'), new AIMessage('Cleared.')]);
       await chat('clear my cart');
-      expect(await turnSamples().countDocuments({})).toBe(0);
+      expect(await samples()).toHaveLength(0);
     });
 
     it('a failing insert never affects the turn', async () => {

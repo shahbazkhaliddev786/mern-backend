@@ -1,10 +1,10 @@
 // `npm run eval:online` (spec 021): judges one batch of sampled live turns with Claude Haiku 5.5,
 // flags the low scorers for review and prints a summary with no customer text (also to the CI
-// job summary). Needs ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or MONGODB_URL); skips
+// job summary). Needs ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or DATABASE_URL); skips
 // without them. ONLINE_EVAL_DAILY_CAP limits the turns judged per day (default 200).
 
 import { appendFileSync } from 'node:fs';
-import mongoose from 'mongoose';
+import { closeDb, useDatabase } from '../../src/db/client.js';
 import { AnthropicModel } from 'deepeval/models';
 import { AnswerRelevancyMetric, FaithfulnessMetric, GEval } from 'deepeval/metrics';
 import { LLMTestCase, SingleTurnParams } from 'deepeval/test-case';
@@ -39,27 +39,27 @@ const haikuJudge: Judge = async (snapshot) => {
 };
 
 async function main(): Promise<number> {
-  const url = process.env.ONLINE_EVALS_DATABASE_URL || config.MONGODB_URL;
+  const url = process.env.ONLINE_EVALS_DATABASE_URL || config.DATABASE_URL;
   if (!config.ANTHROPIC_API_KEY || !url) {
-    const note = 'Online evals skipped: set ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or MONGODB_URL) to run them.';
+    const note = 'Online evals skipped: set ANTHROPIC_API_KEY and ONLINE_EVALS_DATABASE_URL (or DATABASE_URL) to run them.';
     print(note);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${note}\n`);
     return 0;
   }
-  await mongoose.connect(url);
+  await useDatabase(url);
   const summary = renderSummary(await judgeBatch({ judge: haikuJudge, cap: Number(process.env.ONLINE_EVAL_DAILY_CAP) || DEFAULT_DAILY_CAP }));
   print(summary);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
   return 0;
 }
 
-// Exit explicitly: the app logger's MongoDB transport keeps its own connection open.
+// Exit explicitly: the app logger's MongoDB transport (until spec 023 stage 5) keeps its own connection open.
 main()
   .catch((error: unknown) => {
     process.stderr.write(`Online evals failed: ${error instanceof Error ? error.message : String(error)}\n`);
     return 1;
   })
   .then(async (code) => {
-    await mongoose.disconnect();
+    await closeDb();
     process.exit(code);
   });

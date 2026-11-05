@@ -1,10 +1,25 @@
-// The shopping agent's own tables (spec 023). The checkpointer (PostgresSaver) and the rate
-// limiters (RateLimiterPostgres) create and manage their own tables, so they aren't here.
+// The shopping agent's own tables (spec 023). The checkpointer (PostgresSaver) creates and manages
+// its own tables (`npm run db:migrate` runs its setup), so they aren't here.
 
 import { sql } from 'drizzle-orm';
-import { boolean, customType, index, integer, jsonb, pgTable, text, timestamp, unique, uuid, vector } from 'drizzle-orm/pg-core';
+import { bigint, boolean, customType, index, integer, jsonb, pgTable, text, timestamp, unique, uuid, varchar, vector } from 'drizzle-orm/pg-core';
 
 const tsvector = customType<{ data: string }>({ dataType: () => 'tsvector' });
+
+/**
+ * Every rate limiter's counters (spec 014 and the site's per-IP limit): the table RateLimiterPostgres
+ * would create, made here so no request has to. Each limiter's key prefix keeps its keys apart.
+ */
+export const rateLimits = pgTable(
+  'rate_limits',
+  {
+    key: varchar('key', { length: 255 }).primaryKey(),
+    points: integer('points').notNull().default(0),
+    // When the window ends, in milliseconds since the epoch, as the limiter stores it.
+    expire: bigint('expire', { mode: 'number' }),
+  },
+  (t) => [index('rate_limits_expire_idx').on(t.expire)],
+);
 
 /** A confirmation claimed by a resume, so only one request runs it (spec 002). */
 export const agentConfirmClaims = pgTable(

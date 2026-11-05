@@ -14,7 +14,7 @@ import { GIVE_UP_REPLY, REFUSAL_REPLY } from './prompt.js';
 import { buildAgentGraph, createChatModel, createEscalationModel, RECURSION_LIMIT } from './graph.js';
 import { consumeBudgets } from './limits.js';
 import { StreamRedactor } from './guard.js';
-import { saveTurnSample, snapshotTurn, type TurnSample } from './online-evals.js';
+import { saveTurnSample, snapshotTurn, type NewTurnSample } from './online-evals.js';
 import { toAgentEvents, toolStartEvent, visibleText, type AgentEvent } from './stream.js';
 import { buildToolsForRequest, summarizeConfirmation } from './tools/index.js';
 
@@ -29,7 +29,7 @@ export interface ChatDeps {
   releaseConfirmation?: (interruptId: string) => Promise<void>;
   /** Spec 021: the share of finished turns saved for the online judge (0 or missing: none). */
   sampleRate?: number;
-  saveSample?: (sample: Omit<TurnSample, 'createdAt' | 'expiresAt'>) => Promise<void>;
+  saveSample?: (sample: NewTurnSample) => Promise<void>;
 }
 
 const defaultDeps: ChatDeps = {

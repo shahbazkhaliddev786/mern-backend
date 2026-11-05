@@ -5,6 +5,7 @@
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import pg from 'pg';
 import { MIGRATIONS_FOLDER, runMigrations } from './migrate.js';
@@ -18,11 +19,14 @@ const withDb = (url: string, name: string) => {
   return u.toString();
 };
 
+/** What a template is built from: our migrations, and the checkpointer version that adds its tables. */
 function migrationsHash(): string {
   const hash = crypto.createHash('sha256');
   for (const file of fs.readdirSync(MIGRATIONS_FOLDER).filter((f) => f.endsWith('.sql')).sort()) {
     hash.update(file).update(fs.readFileSync(path.join(MIGRATIONS_FOLDER, file)));
   }
+  const checkpointer = createRequire(import.meta.url)('@langchain/langgraph-checkpoint-postgres/package.json') as { version: string };
+  hash.update(`checkpointer@${checkpointer.version}`);
   return hash.digest('hex').slice(0, 10);
 }
 

@@ -1,14 +1,16 @@
-// Online evals without a key (spec 021): one batch with a stub judge against MongoDB — only
+// Online evals without a key (spec 021): one batch with a stub judge against Postgres — only
 // unjudged samples, the daily cap, flags below the thresholds, a summary with no customer text —
-// and the review queue. Runs only when MONGO_URL is set (it's part of `npm test`).
+// and the review queue. Runs only when TEST_DATABASE_URL is set (it's part of `npm test`).
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import mongoose from 'mongoose';
-import { expiresAfter, feedbackRecords, saveFeedback, turnSamples, type TurnSnapshot } from '../../src/agent/online-evals';
+import { eq } from 'drizzle-orm';
+import { expiresAfter, saveFeedback, type TurnSnapshot } from '../../src/agent/online-evals';
+import { getDb } from '../../src/db/client';
+import { agentFeedback, agentTurnSamples } from '../../src/db/schema/index';
+import { createTestDatabase, TEST_DATABASE_URL, type TestDatabase } from '../../src/db/test-db';
 import { judgeBatch, listFlagged, renderFlagged, renderSummary, resolveFlagged, type Judge } from './online';
 
-const MONGO_URL = process.env.MONGO_URL;
-if (process.env.CI === 'true' && !MONGO_URL) throw new Error('The online eval checks need MONGO_URL in CI (spec 021).');
+if (process.env.CI === 'true' && !TEST_DATABASE_URL) throw new Error('The online eval checks need TEST_DATABASE_URL in CI (spec 021).');
 
 const SECRET = 'Ship to 9 Private Road';
 const snapshot = (reply: string, withTools = true): TurnSnapshot => ({
@@ -19,8 +21,8 @@ const snapshot = (reply: string, withTools = true): TurnSnapshot => ({
 const DAY = 24 * 60 * 60 * 1000;
 const now = new Date('2026-10-26T12:00:00Z');
 
-async function sample(reply: string, createdAt: Date, extra: Record<string, unknown> = {}, withTools = true) {
-  await turnSamples().insertOne({
+async function sample(reply: string, createdAt: Date, extra: Partial<typeof agentTurnSamples.$inferInsert> = {}, withTools = true) {
+  await getDb().insert(agentTurnSamples).values({
     user: 'hashed',
     threadId: 't',
     replyId: `r-${reply}`,
@@ -44,17 +46,20 @@ const stub: Judge = async (snap) => {
   };
 };
 
-describe.skipIf(!MONGO_URL)('online evals: the batch and the review queue', () => {
+const sampleFor = async (replyId: string) => (await getDb().select().from(agentTurnSamples).where(eq(agentTurnSamples.replyId, replyId)))[0];
+const voteFor = async (replyId: string) => (await getDb().select().from(agentFeedback).where(eq(agentFeedback.replyId, replyId)))[0];
+
+describe.skipIf(!TEST_DATABASE_URL)('online evals: the batch and the review queue', () => {
+  let testDb: TestDatabase;
   beforeAll(async () => {
-    await mongoose.connect(`${MONGO_URL}/agent_online_evals_test`);
-  });
+    testDb = await createTestDatabase('online_evals');
+  }, 60_000);
   afterAll(async () => {
-    await mongoose.connection.dropDatabase();
-    await mongoose.disconnect();
+    await testDb?.drop();
   });
   beforeEach(async () => {
-    await turnSamples().deleteMany({});
-    await feedbackRecords().deleteMany({});
+    await getDb().delete(agentTurnSamples);
+    await getDb().delete(agentFeedback);
   });
 
   it('judges only unjudged samples, flags low scores and keeps flagged ones longer', async () => {
@@ -67,12 +72,12 @@ describe.skipIf(!MONGO_URL)('online evals: the batch and the review queue', () =
     const summary = await judgeBatch({ judge: stub, cap: 200, now });
     expect(summary).toMatchObject({ judged: 3, flagged: 2, errors: 0, waiting: 0, flaggedBy: { faithfulness: 1, relevancy: 1 } });
 
-    const bad = await turnSamples().findOne({ replyId: 'r-bad' });
+    const bad = await sampleFor('r-bad');
     expect(bad).toMatchObject({ flags: ['faithfulness'], scores: { faithfulness: 0.5 }, judgedAt: now });
     expect(bad!.expiresAt.getTime() - created.getTime()).toBe(90 * DAY);
-    const off = await turnSamples().findOne({ replyId: 'r-off' });
+    const off = await sampleFor('r-off');
     expect(off!.scores).not.toHaveProperty('faithfulness'); // no tool results, nothing to be faithful to
-    const good = await turnSamples().findOne({ replyId: 'r-good' });
+    const good = await sampleFor('r-good');
     expect(good).toMatchObject({ flags: [] });
     expect(good!.expiresAt.getTime() - created.getTime()).toBe(30 * DAY);
   });
@@ -110,10 +115,21 @@ describe.skipIf(!MONGO_URL)('online evals: the batch and the review queue', () =
     const [flagged] = await listFlagged();
     await resolveFlagged(flagged!.id, 'promoted', undefined);
     await saveFeedback({ userId: 'u1', threadId: 't', replyId: 'r1', rating: 'down', snapshot: snapshot('meh') });
-    expect(await feedbackRecords().findOne({ replyId: 'r1' })).toMatchObject({ review: { status: 'promoted' } });
+    expect(await voteFor('r1')).toMatchObject({ review: { status: 'promoted' } });
     expect(await listFlagged()).toEqual([]);
     await saveFeedback({ userId: 'u1', threadId: 't', replyId: 'r1', rating: 'up' });
-    expect(await feedbackRecords().findOne({ replyId: 'r1' })).not.toHaveProperty('review');
+    expect(await voteFor('r1')).toMatchObject({ review: null });
+  });
+
+  it('skips expired records, as the TTL indexes removed them, before any cleanup runs (spec 023)', async () => {
+    await sample('stale', new Date(now.getTime() - 40 * DAY)); // expired 10 days before the batch
+    expect(await judgeBatch({ judge: stub, cap: 10, now })).toMatchObject({ judged: 0, waiting: 0, outcomes: {} });
+
+    await saveFeedback({ userId: 'u1', threadId: 't', replyId: 'r-old', rating: 'down', snapshot: snapshot('meh') });
+    await getDb()
+      .update(agentFeedback)
+      .set({ expiresAt: new Date(Date.now() - 1000) });
+    expect(await listFlagged()).toEqual([]);
   });
 
   it('lists flagged turns and thumbs-downs newest first, and resolves one', async () => {
@@ -128,7 +144,7 @@ describe.skipIf(!MONGO_URL)('online evals: the batch and the review queue', () =
 
     expect(await resolveFlagged(flagged[1]!.id, 'promoted', 'golden online-faithfulness-1')).toBe(true);
     expect((await listFlagged()).map((f) => f.id)).toEqual([flagged[0]!.id]);
-    const resolved = await turnSamples().findOne({ replyId: 'r-bad' });
+    const resolved = await sampleFor('r-bad');
     expect(resolved!.review).toMatchObject({ status: 'promoted', note: 'golden online-faithfulness-1' });
     expect(resolved!.expiresAt.getTime() - resolved!.createdAt.getTime()).toBe(30 * DAY);
 
@@ -136,6 +152,6 @@ describe.skipIf(!MONGO_URL)('online evals: the batch and the review queue', () =
     expect(await listFlagged()).toEqual([]);
     expect(renderFlagged([])).toBe('Nothing flagged.');
     expect(await resolveFlagged('s:not-an-id', 'dismissed', undefined)).toBe(false);
-    expect(await resolveFlagged(`f:${new mongoose.Types.ObjectId().toHexString()}`, 'dismissed', undefined)).toBe(false);
+    expect(await resolveFlagged(`f:${crypto.randomUUID()}`, 'dismissed', undefined)).toBe(false);
   });
 });

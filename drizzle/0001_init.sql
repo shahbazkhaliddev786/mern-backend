@@ -178,6 +178,12 @@ CREATE TABLE "knowledge_chunks" (
 	"search" "tsvector" GENERATED ALWAYS AS (setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(question, '')), 'A') || setweight(to_tsvector('english', coalesce(context, '')), 'B') || setweight(to_tsvector('english', coalesce(text, '')), 'C')) STORED
 );
 --> statement-breakpoint
+CREATE TABLE "rate_limits" (
+	"key" varchar(255) PRIMARY KEY NOT NULL,
+	"points" integer DEFAULT 0 NOT NULL,
+	"expire" bigint
+);
+--> statement-breakpoint
 ALTER TABLE "cart_items" ADD CONSTRAINT "cart_items_cart_id_carts_id_fk" FOREIGN KEY ("cart_id") REFERENCES "public"."carts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "cart_items" ADD CONSTRAINT "cart_items_product_id_products_id_fk" FOREIGN KEY ("product_id") REFERENCES "public"."products"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "carts" ADD CONSTRAINT "carts_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -202,4 +208,5 @@ CREATE INDEX "agent_feedback_expires_at_idx" ON "agent_feedback" USING btree ("e
 CREATE INDEX "agent_turn_samples_queue_idx" ON "agent_turn_samples" USING btree ("judged_at","created_at");--> statement-breakpoint
 CREATE INDEX "agent_turn_samples_expires_at_idx" ON "agent_turn_samples" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "knowledge_chunks_embedding_idx" ON "knowledge_chunks" USING hnsw ("embedding" vector_cosine_ops);--> statement-breakpoint
-CREATE INDEX "knowledge_chunks_search_idx" ON "knowledge_chunks" USING gin ("search");
+CREATE INDEX "knowledge_chunks_search_idx" ON "knowledge_chunks" USING gin ("search");--> statement-breakpoint
+CREATE INDEX "rate_limits_expire_idx" ON "rate_limits" USING btree ("expire");

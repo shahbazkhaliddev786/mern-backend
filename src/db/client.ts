@@ -1,12 +1,13 @@
 // The database (spec 023): PostgreSQL on Neon through Drizzle, over one small `pg` pool. On Vercel
-// the pool is reused across warm starts, as the Mongo connection was. Use Neon's pooled
-// connection string here; migrations use the direct one (DIRECT_DATABASE_URL) when it's set.
+// the pool is reused across warm starts, as the Mongo connection was. DATABASE_URL is Neon's pooled
+// connection string; migrations use the direct one (DATABASE_URL_UNPOOLED) when it's set.
 
 import pg from 'pg';
 import { DrizzleQueryError } from 'drizzle-orm';
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import config from '../config/config.js';
 import logger from '../utils/logger.js';
+import { pgConfig } from './connection.js';
 import * as schema from './schema/index.js';
 
 export type Db = NodePgDatabase<typeof schema>;
@@ -19,7 +20,7 @@ let db: Db | null = null;
 
 const newPool = (connectionString: string) => {
   const created = new pg.Pool({
-    connectionString,
+    ...pgConfig(connectionString),
     // A serverless function serves one request at a time; Neon's pooler does the rest.
     max: 5,
     idleTimeoutMillis: 10_000,

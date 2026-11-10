@@ -1,0 +1,9 @@
+{
+  "name": "aljo-copy-from-mongo",
+  "private": true,
+  "type": "module",
+  "description": "One-time copy of the store's MongoDB data into Postgres (spec 023, stage 6). Delete this folder once the move is done.",
+  "dependencies": {
+    "mongodb": "^7.8.0"
+  }
+}

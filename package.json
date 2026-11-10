@@ -15,6 +15,7 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:cleanup": "tsx src/db/cleanup.ts",
+    "db:copy-from-mongo": "npm ci --prefix scripts/copy-from-mongo --no-audit --no-fund --silent && tsx scripts/copy-from-mongo/copy.ts",
     "agent:ingest": "tsx src/agent/ingest.ts",
     "eval:safety": "vitest run evals/safety",
     "eval:knowledge": "cross-env DEEPEVAL_TELEMETRY_OPT_OUT=YES vitest run --config evals/vitest.config.ts evals/knowledge.eval.ts",

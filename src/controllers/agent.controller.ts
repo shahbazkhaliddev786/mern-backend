@@ -69,7 +69,7 @@ const limitRequests =
       res.setHeader('Retry-After', String(Math.ceil(result.msBeforeNext / 1000)));
       return apiResponse(res, 429, 'error', tooMany(waitPhrase(result.msBeforeNext)));
     } catch (error) {
-      // Without the limit store the request isn't let through (the chat needs MongoDB anyway).
+      // Without the limit store the request isn't let through (the chat needs the database anyway).
       logger.error('AGENT_LIMIT_ERROR', { userId, error: error instanceof LimitStoreError ? error.message : String(error) });
       return apiResponse(res, 503, 'error', UNAVAILABLE);
     }

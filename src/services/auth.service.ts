@@ -13,6 +13,7 @@ import bufferGenerator from '../utils/buffer.generator.js'
 import cloudinary from '../utils/cloudinary.js';
 import { isId } from '../utils/ids.js';
 import { apiUser, compact } from './shapes.js';
+import { cleanupAfterWrite } from '../db/expiry.js';
 
 const OTP_TTL_MS = 5 * 60 * 1000; // the OTP email promises 5 minutes
 const MAX_OTP_ATTEMPTS = 5;
@@ -126,6 +127,7 @@ export const sendOTP = async (email: string, purpose: OtpEmailPurpose = 'verify'
     .insert(otps)
     .values({ email: normalizeEmail(email), otp, expiresAt, attempts: 0 })
     .onConflictDoUpdate({ target: otps.email, set: { otp, expiresAt, attempts: 0 } });
+  await cleanupAfterWrite('otps');
 
   await sendOTPEmail(email, otp, purpose);
 };

@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import type pg from 'pg';
 import { getDb, getPool, type Executor } from '../db/client.js';
 import { agentConfirmClaims } from '../db/schema/index.js';
+import { cleanupAfterWrite } from '../db/expiry.js';
 
 /** A checkpointer for one request. Never call its `end()`: that closes the pool it was given. */
 export function createCheckpointer(pool: pg.Pool = getPool()): PostgresSaver {
@@ -23,6 +24,7 @@ export async function claimConfirmation(interruptId: string, thread: string, db:
     .values({ interruptId, thread })
     .onConflictDoNothing({ target: agentConfirmClaims.interruptId })
     .returning({ interruptId: agentConfirmClaims.interruptId });
+  await cleanupAfterWrite('agent_confirm_claims');
   return claimed.length > 0;
 }
 

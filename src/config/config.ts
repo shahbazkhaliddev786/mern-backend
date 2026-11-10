@@ -10,9 +10,6 @@ export default {
     SERVER_URL: process.env.SERVER_URL || `http://localhost:${process.env.PORT || 4000}`,
     // PostgreSQL on Neon (spec 023): the pooled connection string.
     DATABASE_URL: process.env.DATABASE_URL || '',
-    // MongoDB, only until spec 023 moves the rest off it: the agent's memory, limits, feedback and
-    // knowledge, the login sessions and the log transport.
-    MONGODB_URL: process.env.MONGODB_URL || '',
     JWT_SECRET: process.env.JWT_SECRET || '',
     REFRESH_TOKEN_SECRET: process.env.REFRESH_TOKEN_SECRET || '',
     JWT_ACCESS_EXPIRES_IN: process.env.JWT_ACCESS_EXPIRES_IN || '',
@@ -38,6 +35,8 @@ export default {
     OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT || '',
     // Optional (spec 016): urgent agent alerts are also POSTed here as { text } (Slack or Make.com)
     ALERT_WEBHOOK_URL: process.env.ALERT_WEBHOOK_URL || '',
+    // Spec 023: the daily cleanup's endpoint answers only a request carrying this (Vercel Cron sends it)
+    CRON_SECRET: process.env.CRON_SECRET || '',
     // Spec 021: the share of finished agent turns saved for the online judge (0 turns it off)
     AGENT_EVAL_SAMPLE_RATE: process.env.AGENT_EVAL_SAMPLE_RATE || '0.1',
 }

@@ -4,7 +4,7 @@
 // time, are their own table.
 
 import { sql } from 'drizzle-orm';
-import { boolean, check, customType, index, integer, jsonb, numeric, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, customType, index, integer, json, jsonb, numeric, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core';
 
 const money = (name: string) => numeric(name, { precision: 10, scale: 2, mode: 'number' });
 const timestamps = {
@@ -214,4 +214,18 @@ export const pendingUploads = pgTable(
       .default(sql`now() + interval '1 hour'`),
   },
   (t) => [index('pending_uploads_user_idx').on(t.userId), index('pending_uploads_expires_at_idx').on(t.expiresAt)],
+);
+
+/**
+ * Login sessions (the guest cart lives in one), kept by connect-pg-simple exactly as its own
+ * table.sql makes them (spec 023). Expired rows are deleted by the daily cleanup.
+ */
+export const sessions = pgTable(
+  'session',
+  {
+    sid: varchar('sid').primaryKey(),
+    sess: json('sess').notNull(),
+    expire: timestamp('expire', { precision: 6 }).notNull(),
+  },
+  (t) => [index('IDX_session_expire').on(t.expire)],
 );

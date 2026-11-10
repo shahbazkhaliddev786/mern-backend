@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { asc, eq, sql } from 'drizzle-orm';
 import pg from 'pg';
-import { getDb, getPool } from './client';
+import { checkDatabase, getDb, getPool, useDatabase } from './client';
 import { brands, cartItems, carts, categories, knowledgeChunks, products, users } from './schema/index';
 import { createTestDatabase, TEST_DATABASE_URL, type TestDatabase } from './test-db';
 
@@ -61,6 +61,8 @@ describe.skipIf(!TEST_DATABASE_URL)('the Postgres schema (spec 023)', () => {
       'pending_uploads',
       'products',
       'rate_limits',
+      // Login sessions, as connect-pg-simple keeps them (spec 023, stage 5).
+      'session',
       'users',
     ]);
   });
@@ -128,6 +130,16 @@ describe.skipIf(!TEST_DATABASE_URL)('the Postgres schema (spec 023)', () => {
       .from(knowledgeChunks)
       .orderBy(asc(sql`${knowledgeChunks.embedding} <=> ${query}::vector`));
     expect(byMeaning.map((r) => r.id)).toEqual(['shipping-1', 'returns-1']);
+  });
+
+  it('the health check says whether the database answers', async () => {
+    expect(await checkDatabase()).toBe(true);
+    await useDatabase('postgres://postgres@127.0.0.1:1/nowhere');
+    try {
+      expect(await checkDatabase(1_000)).toBe(false);
+    } finally {
+      await useDatabase(testDb.url);
+    }
   });
 
   it('works on its own database: the template every test database is cloned from stays empty', async () => {

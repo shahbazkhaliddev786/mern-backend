@@ -1,6 +1,5 @@
 import '../src/tracing.js';
 import { createApp } from '../src/app.js';
-import { connectDB } from '../src/services/db.service.js';
 import loaders from '../src/loaders/index.js';
 import logger from '../src/utils/logger.js';
 
@@ -19,7 +18,7 @@ export const config = {
 export default async function handler(req: any, res: any) {
   try {
     if (!isInitialized) {
-      await connectDB();
+      // No connect step: the database pool opens on the first query (spec 023).
       // Intercept root and vercel rewritten paths
       app.use((req, res, next) => {
         if (req.path === '/' || req.path === '/api/index' || req.path === '/api/index.ts' || req.path === '') {

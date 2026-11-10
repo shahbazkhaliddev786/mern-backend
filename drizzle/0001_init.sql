@@ -106,6 +106,12 @@ CREATE TABLE "products" (
 	CONSTRAINT "products_stock_check" CHECK ("products"."stock" >= 0)
 );
 --> statement-breakpoint
+CREATE TABLE "session" (
+	"sid" varchar PRIMARY KEY NOT NULL,
+	"sess" json NOT NULL,
+	"expire" timestamp (6) NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE "users" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"name" text NOT NULL,
@@ -203,6 +209,7 @@ CREATE INDEX "products_category_idx" ON "products" USING btree ("category_id");-
 CREATE INDEX "products_brand_idx" ON "products" USING btree ("brand_id");--> statement-breakpoint
 CREATE INDEX "products_sku_idx" ON "products" USING btree ("sku");--> statement-breakpoint
 CREATE INDEX "products_name_search_idx" ON "products" USING gin (to_tsvector('english', "name"));--> statement-breakpoint
+CREATE INDEX "IDX_session_expire" ON "session" USING btree ("expire");--> statement-breakpoint
 CREATE INDEX "agent_confirm_claims_expires_at_idx" ON "agent_confirm_claims" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "agent_feedback_expires_at_idx" ON "agent_feedback" USING btree ("expires_at");--> statement-breakpoint
 CREATE INDEX "agent_turn_samples_queue_idx" ON "agent_turn_samples" USING btree ("judged_at","created_at");--> statement-breakpoint

@@ -6,6 +6,7 @@ import { getDb } from '../db/client.js';
 import { pendingUploads } from '../db/schema/index.js';
 import { isId } from '../utils/ids.js';
 import { updateUserProfile } from './auth.service.js';
+import { cleanupAfterWrite } from '../db/expiry.js';
 
 export class UploadNotFoundError extends Error {
   constructor() {
@@ -39,6 +40,7 @@ export const createAvatarUpload = async (userId: string, file: IncomingFile): Pr
       originalName: file.originalname,
     })
     .returning({ id: pendingUploads.id, originalName: pendingUploads.originalName, size: pendingUploads.size });
+  await cleanupAfterWrite('pending_uploads');
   return { uploadId: upload!.id, name: upload!.originalName, size: upload!.size };
 };
 

@@ -8,6 +8,7 @@ import { getDb, type Executor } from '../db/client.js';
 import { agentFeedback, agentTurnSamples, type ReviewJson, type TurnSnapshotJson } from '../db/schema/index.js';
 import { redact } from './guard.js';
 import { visibleText } from './stream.js';
+import { cleanupAfterWrite } from '../db/expiry.js';
 
 // Spec 021: unflagged records go with the checkpoints; flagged ones wait for review, up to a limit.
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -72,6 +73,7 @@ export interface Vote {
 export async function saveTurnSample(sample: NewTurnSample, db: Executor = getDb()): Promise<void> {
   const now = new Date();
   await db.insert(agentTurnSamples).values({ ...sample, createdAt: now, expiresAt: expiresAfter(RETENTION_DAYS.unflagged, now) });
+  await cleanupAfterWrite('agent_turn_samples');
 }
 
 /**
@@ -111,4 +113,5 @@ export async function saveFeedback(vote: Vote, db: Executor = getDb()): Promise<
         expiresAt: sql`case when ${sameRating} and ${agentFeedback.review} is not null then ${agentFeedback.expiresAt} else excluded.expires_at end`,
       },
     });
+  await cleanupAfterWrite('agent_feedback');
 }

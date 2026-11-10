@@ -10,6 +10,7 @@ import config from '../config/config.js';
 import { sendOrderConfirmationEmail } from '../utils/order.confirmation.email.js';
 import { isId } from '../utils/ids.js';
 import logger from '../utils/logger.js';
+import { cleanupAfterWrite } from '../db/expiry.js';
 
 export class NotFoundError extends Error {
   status = 404;
@@ -105,6 +106,8 @@ const startCheckout = async (userId: string, shippingAddress: ShippingAddress) =
       checkoutUrl: session.url ?? null,
     })
     .returning({ id: pendingCheckouts.id });
+
+  await cleanupAfterWrite('pending_checkouts');
 
   return { sessionId: session.id, url: session.url, pendingCheckoutId: pending!.id };
 };

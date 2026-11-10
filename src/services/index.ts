@@ -1,5 +1,3 @@
-export { connectDB } from './db.service.js';
-
 export {
     registerUser,
     sendOTP,

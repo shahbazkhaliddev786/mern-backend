@@ -1,10 +1,8 @@
 import dns from 'dns';
 
 import util from 'util';
-import 'winston-mongodb';
 import { isSpanContextValid, trace } from '@opentelemetry/api';
 import { createLogger, format, transports } from 'winston';
-import type { MongoDBTransportInstance } from 'winston-mongodb';
 import config from '../config/config.js';
 import path from 'path';
 import { red, blue, yellow, green, magenta } from 'colorette';
@@ -116,25 +114,6 @@ const fileTransport = () => {
 };
 
 // --------------------
-// MongoDB transport
-// --------------------
-const mongoTransport = (): MongoDBTransportInstance[] => {
-  if (process.env.VERCEL || !config.MONGODB_URL) {
-    return [];
-  }
-  return [
-    new transports.MongoDB({
-      level: 'info',
-      db: config.MONGODB_URL,
-      collection: 'application-logs',
-      metaKey: 'meta',
-      expireAfterSeconds: 3600 * 24 * 30, // 30 days
-      options: { useUnifiedTopology: true },
-    }),
-  ];
-};
-
-// --------------------
 // Trace ids (spec 017): a line written during a traced request names its trace, so an alert or
 // audit line leads to the full request. Nothing is added when tracing is off.
 // --------------------
@@ -153,7 +132,8 @@ export const withTraceIds = format((info) => {
 const logger = createLogger({
   format: withTraceIds(),
   defaultMeta: { meta: {} },
-  transports: [...fileTransport(), ...mongoTransport(), ...consoleTransport()],
+  // The MongoDB transport went with MongoDB (spec 023); on Vercel the console is the log.
+  transports: [...fileTransport(), ...consoleTransport()],
 });
 
 export default logger;

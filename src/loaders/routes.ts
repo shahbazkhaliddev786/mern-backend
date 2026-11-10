@@ -15,6 +15,7 @@ import {
   agentRouter
 } from '../routes/index.js';
 import orderRouter from '../routes/order.routes.js';
+import { internalRouter } from '../routes/internal.routes.js';
 
 export default async function routesLoader(app: Express) {
   // Root endpoint
@@ -24,6 +25,8 @@ export default async function routesLoader(app: Express) {
 
   // API versioned routes
   app.use('/api/v1', healthRouter); 
+  // Platform jobs (spec 023): the daily cleanup Vercel Cron calls.
+  app.use('/api/v1/internal', internalRouter);
   app.use('/api/v1/brands', brandRouter); 
   app.use('/api/v1/categories', categoryRouter); 
   app.use('/api/v1/products', productRouter);

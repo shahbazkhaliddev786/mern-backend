@@ -50,6 +50,24 @@ export async function useDatabase(connectionString: string): Promise<void> {
   pool = newPool(connectionString);
 }
 
+/** Whether the database answers a `SELECT 1` within `timeoutMs`. Never throws: for health checks. */
+export async function checkDatabase(timeoutMs = 2_000): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), timeoutMs)));
+  try {
+    return await Promise.race([
+      getPool()
+        .query('SELECT 1')
+        .then(() => true),
+      timeout,
+    ]);
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function closeDb(): Promise<void> {
   const closing = pool;
   pool = null;

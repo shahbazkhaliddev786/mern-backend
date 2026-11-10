@@ -41,6 +41,8 @@ describe.skipIf(!TEST_DATABASE_URL)('sessions on Postgres', () => {
     const added = await fetch(`${base}/cart`, { method: 'POST' });
     const cookie = added.headers.get('set-cookie')?.split(';')[0];
     expect(cookie).toMatch(/^connect\.sid=/);
+    // express-session holds the body's last byte until the store has saved, so wait for it.
+    expect(await added.json()).toEqual({ ok: true });
 
     const again = await fetch(`${base}/cart`, { headers: { cookie: cookie! } });
     expect(await again.json()).toEqual({ items: [{ product: 'p-1', quantity: 2 }] });

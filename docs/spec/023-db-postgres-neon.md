@@ -5,7 +5,7 @@
 | **Status** | In progress |
 | **Milestone** | Platform: before launch (M7 launch becomes spec 024) |
 | **Created** | 2026-11-04 |
-| **Updated** | 2026-11-05 |
+| **Updated** | 2026-11-10 |
 | **Closed by** | — |
 | **Repo** | `mern-backend` (branch `db-migration`); `mern-frontend` only if the open questions need it |
 
@@ -124,19 +124,19 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 - [x] **2. Store data** (`42e60cf`): every model and service on Drizzle; the API's response shapes kept; the store's tests ported
 - [x] **3. Agent stores** (`1aa8d7a`): the checkpointer, claims, limits, feedback and samples; the agent's tests and the safety gate ported
 - [x] **4. Knowledge search** (`bde67cb`): `knowledge_chunks` on pgvector + full-text; the ingest and retrieval ported; the retrieval tests ported
-- [ ] **5. The rest:** sessions, logs and expiry; MongoDB packages removed; CI moved to the Postgres service
+- [x] **5. The rest** (`ff610eb`): sessions, logs and expiry; MongoDB packages removed; CI moved to the Postgres service
 - [ ] **6. Data:** the move script and a dry run on a Neon branch (if chosen)
 - [ ] **7. Docs:** `.env.example`, setup, the design docs (`architecture.md`, `tech-stack.md`, `phases.md`) and the spec index
 
 ## Acceptance criteria
 
-- [ ] No `mongoose`, `mongodb`, `connect-mongo`, `winston-mongodb` or `langgraph-checkpoint-mongodb` left in `package.json` or `src/`.
+- [x] No `mongoose`, `mongodb`, `connect-mongo`, `winston-mongodb` or `langgraph-checkpoint-mongodb` left in `package.json` or `src/` (stage 5: none in the dependency tree; comments still say where a response shape comes from in the MongoDB version).
 - [ ] Every API response has the same fields and types as before, with a contract test per route group on the main endpoints.
 - [ ] `npm test` passes against Postgres, with no database test skipped in CI.
   - The safety gate still reads 17 pass, 1 n/a.
   - The oracle agent suite (spec 020) passes all 51 cases.
 - [ ] Knowledge retrieval returns the expected chunks for the existing retrieval tests. The knowledge evals' scores, once a key is available, are recorded and compared with Atlas.
-- [ ] Records that expired by TTL still expire — test.
+- [x] Records that expired by TTL still expire — test (`src/db/cleanup.pg.test.ts`).
 - [ ] **Checks:** lint 0 errors, build, CI green on `db-migration`.
 - [ ] **Data (if chosen):** the move script's counts match on a Neon branch dry run.
 
@@ -185,3 +185,8 @@ _None — resolved 2026-11-04, see the decision log._
 | 2026-11-05 | The word search matches any of the question's words (`plainto_tsquery` with OR), ranked by `ts_rank_cd` | As Atlas's text search did; matching every word misses natural questions |
 | 2026-11-05 | Lexical floor (fake embedder): 90% of the goldens on Postgres, 93% on Atlas | The one difference ("get in touch") shares no word with its answer; it was in Atlas's top 5 by the order of tied scores. The real embedder is judged by `eval:knowledge` |
 | 2026-11-05 | `npm run agent:setup` is removed, and CI's MongoDB services go in stage 4 | The migration creates the search indexes, and no test needs MongoDB any more |
+| 2026-11-10 | Login sessions use connect-pg-simple, in a `session` table the migration creates; expired sessions go with the daily cleanup | The store's own pruning timer would run in every warm serverless instance |
+| 2026-11-10 | The daily cleanup runs on Vercel Cron, through `GET /api/v1/internal/cleanup` with `CRON_SECRET` | Owner's choice: no database credentials in GitHub, and it uses the app's own connection |
+| 2026-11-10 | Each write deletes up to 100 of its table's expired rows; reads already skip expired ones | The daily sweep then has little left, and nothing expired is used before it runs |
+| 2026-11-10 | The health check's `database` field is `{ connected }`; MongoDB's `readyState` is gone | Nothing in the frontend or CI reads it |
+| 2026-11-10 | Guest carts held in MongoDB sessions aren't carried over | They're anonymous and short-lived; signed-in carts are already in Postgres |

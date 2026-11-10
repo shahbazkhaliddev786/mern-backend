@@ -15,9 +15,9 @@ The baseline. Don't skip it just because the LLM layer is shinier.
 - [ ] **Rate** — requests/min per endpoint
 - [ ] **Errors** — 4xx/5xx, unhandled exceptions, Express error rate
 - [ ] **Duration** — p50/p95/p99 latency per route
-- [ ] **Saturation** — Node event-loop lag, memory, CPU, Mongo connection pool
-- [ ] **MongoDB** — query latency, slow queries, Atlas Vector Search index health
-- [ ] **Product search** — latency of the Mongo product query behind `search_products` (and Typesense health, if it's ever added)
+- [ ] **Saturation** — Node event-loop lag, memory, CPU, Postgres connection pool
+- [ ] **Postgres (Neon)** — query latency, slow queries, connection count against the pooler
+- [ ] **Product search** — latency of the product query behind `search_products` (and Typesense health, if it's ever added)
 
 ---
 
@@ -47,7 +47,7 @@ This is what makes it an *agent*. Observe the **path**, not just endpoints.
 - [ ] **Loop detection** — same tool + same args called N times = stuck agent
 - [ ] **Knowledge question** — the self-contained question the agent passed to `ask_store_knowledge` (did it lose the user's meaning?). There is no separate query rewrite or intent router in v1 ([`reconciliation.md`](./reconciliation.md) Gap 3, spec 013)
 - [ ] **Tool-selection trace** — which tool the agent chose, and whether it was the *right* one for the intent
-- [x] **Full trajectory tree** — user msg → agent → tool → result → agent → … → response (one trace, one correlation ID). *Built (spec 017):* HTTP → `agent.turn` → model calls and tools → the tool's MongoDB queries; log lines carry the `traceId`
+- [x] **Full trajectory tree** — user msg → agent → tool → result → agent → … → response (one trace, one correlation ID). *Built (spec 017):* HTTP → `agent.turn` → model calls and tools → the tool's database queries (Postgres since spec 023); log lines carry the `traceId`
 - [ ] **HITL interrupts** — fired? approved/denied? **time-to-confirm**
 - [ ] **Turns-to-completion** — conversations that never resolve (user gave up)
 - [ ] **Opus escalation** — rate, **trigger reason** (loop / step budget / repeated tool error), whether Opus resolved the turn, and **cost of escalated turns**
@@ -139,13 +139,13 @@ Observability that leadership (and interviewers) care about:
 
 ## The tracing stack decision: OpenTelemetry vs OpenLLMetry vs LangSmith
 
-> **As built (spec 017):** OpenTelemetry is the backbone. The HTTP and MongoDB spans come from their instrumentations; the `agent.turn`, model-call and per-tool spans come from the agent's own code, so the tree nests properly (request → turn → model call / tool → the tool's queries). Spans carry ids, names, token counts and the cache hit rate, never message text; MongoDB spans keep the query's shape with every value masked. LangSmith gets LangChain's own runs (prompts and steps) plus the request traces over OTLP, linked by `otel_trace_id`; a general backend plugs in through `OTEL_EXPORTER_OTLP_*`. OpenLLMetry was tried and dropped: its LangChain instrumentation produced a flat trace. LangSmith's own OpenTelemetry mode doesn't cover LangGraph. The comparison below is the original reasoning.
+> **As built (spec 017):** OpenTelemetry is the backbone. The HTTP and database spans come from their instrumentations (Postgres since spec 023); the `agent.turn`, model-call and per-tool spans come from the agent's own code, so the tree nests properly (request → turn → model call / tool → the tool's queries). Spans carry ids, names, token counts and the cache hit rate, never message text; Postgres spans keep the SQL, whose values travel as parameters and aren't recorded. LangSmith gets LangChain's own runs (prompts and steps) plus the request traces over OTLP, linked by `otel_trace_id`; a general backend plugs in through `OTEL_EXPORTER_OTLP_*`. OpenLLMetry was tried and dropped: its LangChain instrumentation produced a flat trace. LangSmith's own OpenTelemetry mode doesn't cover LangGraph. The comparison below is the original reasoning.
 
 **These are not either/or — they compose into layers.**
 
 | Option | What it is | Role here |
 |---|---|---|
-| **OpenTelemetry (OTel)** | Vendor-neutral standard for traces/metrics/logs; has **GenAI semantic conventions** (`gen_ai.*` span attributes) | **The backbone.** One correlated trace: HTTP → agent step → tool → Mongo query → LLM call, all under one trace ID. No vendor lock-in. |
+| **OpenTelemetry (OTel)** | Vendor-neutral standard for traces/metrics/logs; has **GenAI semantic conventions** (`gen_ai.*` span attributes) | **The backbone.** One correlated trace: HTTP → agent step → tool → database query → LLM call, all under one trace ID. No vendor lock-in. |
 | **OpenLLMetry** (Traceloop) | An SDK **built on top of OTel** that auto-instruments LLM providers, vector DBs, and frameworks into OTel spans | **The easy on-ramp** — auto-emits OTel-compatible LLM/RAG spans in Node/TS without hand-instrumenting every call. |
 | **LangSmith** | Proprietary **LLM-native** tracing/eval platform; best DX for agent trajectories; can **ingest/export OTLP** | **The specialized lens** — richest view of agent trajectories + online evals, already in the stack. |
 
@@ -153,7 +153,7 @@ Observability that leadership (and interviewers) care about:
 
 **Yes — adopt OpenTelemetry as the backbone from day one, keep LangSmith as the LLM-native layer.** Reasoning:
 
-1. **Correlation across the full stack** — OTel puts the LLM span, the Mongo `$vectorSearch`, the product query, and the Express request in **one trace**. When an order goes wrong, you see the *entire* path, not just the LLM part. LangSmith alone shows you the agent, not the DB query under it.
+1. **Correlation across the full stack** — OTel puts the LLM span, the knowledge search, the product query, and the Express request in **one trace**. When an order goes wrong, you see the *entire* path, not just the LLM part. LangSmith alone shows you the agent, not the DB query under it.
 2. **No vendor lock-in** — OTel + `gen_ai.*` conventions means you can ship the same spans to LangSmith, Grafana/Tempo, Datadog, or Honeycomb without re-instrumenting. This is the interview-correct answer to *"how do you avoid being locked to one observability vendor?"*
 3. **OpenLLMetry** is the pragmatic way to get OTel LLM spans in Node without hand-rolling — auto-instruments Anthropic SDK, the vector store, and LangGraph. Point its OTLP exporter at LangSmith (which accepts OTLP) **and** a general backend.
 

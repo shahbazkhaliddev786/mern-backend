@@ -16,9 +16,9 @@ _As of 2026-10-10._
 | **M2** — Agent core, read-only | A signed-in user can ask about products, cart, orders and profile through the API | 🟡 Code complete — read tools ([spec 005](../spec/005-m2-read-tools.md)) and graph + `POST /api/v1/agent/chat` ([spec 006](../spec/006-m2-agent-graph-and-chat-endpoint.md)); real-model check waits on the API key |
 | **M3** — Chat UI | The same, from a chat panel in the store | ✅ Done — chat panel in `mern-frontend` ([spec 007](../spec/007-m3-chat-panel.md)); the confirm card and avatar upload moved to M4 |
 | **M4** — Write tools + confirmation gate | The agent changes the cart, checks out, updates the profile and contacts support, asking first where the rule says so | 🟡 Code complete — gate, resume and cart writes ([spec 008](../spec/008-m4-confirmation-gate-and-cart-writes.md)), the confirm card ([spec 009](../spec/009-m4-confirm-card.md)), `place_order` ([spec 010](../spec/010-m4-place-order.md)), profile + support ([spec 011](../spec/011-m4-profile-and-support.md)), avatar upload ([spec 012](../spec/012-m4-avatar-upload.md)). `cancel_order` deferred until the store has a `cancelOrder` service (scope step 5). The browser exit check waits on the API key |
-| **M5** — Store knowledge (RAG) | `ask_store_knowledge` answers policy questions with citations | 🟡 Code complete — ingestion, Atlas indexes, hybrid retrieval and the tool ([spec 013](../spec/013-m5-store-knowledge.md)); the LLM-judged eval run waits on the API keys |
+| **M5** — Store knowledge (RAG) | `ask_store_knowledge` answers policy questions with citations | 🟡 Code complete — ingestion, search indexes (Atlas, then pgvector + full text since spec 023), hybrid retrieval and the tool ([spec 013](../spec/013-m5-store-knowledge.md)); the LLM-judged eval run waits on the API keys |
 | **M6** — Hardening | Opus escalation, per-user limits, full tracing | 🟡 Code complete — per-user limits ([spec 014](../spec/014-m6-per-user-limits.md)), Opus escalation ([spec 015](../spec/015-m6-opus-escalation.md)), sensitive-data guard and alerts ([spec 016](../spec/016-m6-sensitive-data-guard-and-alerts.md)), tracing ([spec 017](../spec/017-m6-tracing.md)); the live checks (LangSmith export, a real Opus turn, the alert webhook) wait on keys |
-| **M7** — Evals & launch gate | The CI gate from [`evals.md`](./evals.md), and the go/no-go for production | 🟡 In progress — safety gate ([spec 018](../spec/018-m7-safety-gate.md)), CI ([spec 019](../spec/019-m7-ci.md)), the judged suite and model comparison ([spec 020](../spec/020-m7-judged-suite.md)), online evals and reply feedback ([spec 021](../spec/021-m7-online-evals.md)); the first real runs of both are parked until the keys are set; pre-launch fixes from the code review ([spec 022](../spec/022-m7-pre-launch-fixes.md)); next: the move to PostgreSQL on Neon ([spec 023](../spec/023-db-postgres-neon.md)), then launch (024). Owner: require the `checks` job on `main`; add `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` as repository secrets for the judged evals, and `ONLINE_EVALS_DATABASE_URL` (a restricted Atlas user) for the online evals |
+| **M7** — Evals & launch gate | The CI gate from [`evals.md`](./evals.md), and the go/no-go for production | 🟡 In progress — safety gate ([spec 018](../spec/018-m7-safety-gate.md)), CI ([spec 019](../spec/019-m7-ci.md)), the judged suite and model comparison ([spec 020](../spec/020-m7-judged-suite.md)), online evals and reply feedback ([spec 021](../spec/021-m7-online-evals.md)); the first real runs of both are parked until the keys are set; pre-launch fixes from the code review ([spec 022](../spec/022-m7-pre-launch-fixes.md)); the move to PostgreSQL on Neon is built ([spec 023](../spec/023-db-postgres-neon.md)); next: launch (024). Owner: require the `checks` job on `main`; add `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` as repository secrets for the judged evals, and `ONLINE_EVALS_DATABASE_URL` (a Neon role limited to the two online-eval tables) for the online evals |
 
 **Already in place:** the design docs; the agent's npm packages (installed in `mern-backend`, imported nowhere yet); the knowledge drafts in `mern-backend/knowledge/`; and store services the tools wrap — the cart services keyed by `userId`, `createCheckoutSession(userId, shippingAddress)`, the shared shipping and cart Zod schemas, and `submitSupportRequest` (which already accepts `source: 'agent'`).
 
@@ -27,7 +27,7 @@ _As of 2026-10-10._
 ## 1. Principles for the build
 
 - **Retire the risky unknowns first.** The LangChain binding and Vercel streaming decide the shape of the agent node and where the chat endpoint runs. They are checked before any code that depends on them is written (M1).
-- **Thin vertical slice, then widen.** M2–M3 deliver one path through every layer — UI → stream → agent → tool → Mongo → back — with read-only tools. Every later milestone adds tools or quality to a path that already works.
+- **Thin vertical slice, then widen.** M2–M3 deliver one path through every layer — UI → stream → agent → tool → database → back — with read-only tools. Every later milestone adds tools or quality to a path that already works.
 - **Safety arrives with the feature, not after it.** Identity binding ships with the first tool (M2); the confirmation gate and its 100% tests ship with the first write that needs them (M4).
 - **Tests and tracing from day one, depth later.** M2 starts LangSmith tracing (environment variables only) and a small deterministic test suite; M6–M7 add OpenTelemetry and the judged evals.
 - **The agent wraps store services; it does not reimplement them.** If a tool needs store behaviour that doesn't exist (`cancel_order`, the avatar upload), the service is built for the site and the agent together, as [`reconciliation.md`](./reconciliation.md) already decides.
@@ -41,7 +41,7 @@ mern-backend/src/agent/
   config.ts            models, effort, step budget, loop rules (Gap 4)
   graph.ts             LangGraph graph: agent node, tool node, confirm gate, escalation node
   prompt.ts            static system prompt
-  checkpointer.ts      Mongo checkpointer
+  checkpointer.ts      Postgres checkpointer (MongoDB until spec 023)
   stream.ts            graph events → SSE events
   tools/               one file per tool; index.ts exports buildToolsForRequest(ctx)
   rag/                 ingestion script + retrieval pipeline (M5)
@@ -78,7 +78,7 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 1. **Binding check** ([`tech-stack.md`](./tech-stack.md) Layer 3): call `claude-sonnet-5-5` through `@langchain/anthropic` and confirm it passes `output_config.effort`, adaptive thinking and `strict` tool schemas, returns thinking blocks unchanged, and surfaces `stop_reason: 'refusal'` with `stop_details`. **If any of these fail,** the agent node calls `@anthropic-ai/sdk` directly inside a custom LangGraph node — decide here and record it.
 2. **Package check:** `@langchain/core` resolves to one version that both the agent packages (≥ 1.2.14) and `deepeval` can run with ([`follow-ups.md`](./follow-ups.md) §16 notes the peer conflict).
 3. **Vercel streaming** ([`reconciliation.md`](./reconciliation.md) Gap 14): deploy a test endpoint that streams for ~90 seconds and confirm, through the frontend's `/api` rewrite, that chunks arrive incrementally and the function isn't cut off. Set `maxDuration` in `vercel.json` to what the turn needs.
-4. **Interrupt across requests:** a graph pauses at `interrupt()` in one request and resumes in a second one, with state only in the Mongo checkpointer.
+4. **Interrupt across requests:** a graph pauses at `interrupt()` in one request and resumes in a second one, with state only in the checkpointer (MongoDB then; Postgres since spec 023).
 5. **Config:** add `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY` and `LANGSMITH_*` to `config.ts` and `.env.example`, and remove the Gemini and Redis chat-memory entries ([`reconciliation.md`](./reconciliation.md) Gap 18).
 
 **Exit criteria:** a one-page result for each check, committed in this folder or in the PR; the binding decision and the hosting decision made. If Vercel can't stream or can't run long enough, the chat endpoint moves to a long-running host before M2.
@@ -91,7 +91,7 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 
 **Scope**
 - **Endpoint:** `agent.routes.ts`, login required (guests get 401; the UI shows a sign-in prompt — Gap 16). Streams the SSE events from §2.
-- **Graph:** one Sonnet 5.5 agent node + tool node + Mongo checkpointer, thread per conversation. Static system prompt and tool list; per-request facts arrive as messages ([`architecture.md`](./architecture.md) §3). Append-only history — no `trimMessages`.
+- **Graph:** one Sonnet 5.5 agent node + tool node + checkpointer (Postgres since spec 023), thread per conversation. Static system prompt and tool list; per-request facts arrive as messages ([`architecture.md`](./architecture.md) §3). Append-only history — no `trimMessages`.
 - **Identity binding:** `buildToolsForRequest(ctx)` closes over the verified `ctx.userId`; no tool schema contains `userId` ([`security.md`](./security.md) §3).
 - **Read tools:**
 
@@ -153,8 +153,8 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 **Goal:** `ask_store_knowledge` answers shipping, returns, payment, order, account and support questions from `mern-backend/knowledge/`, with citations, and says so when it doesn't know.
 
 **Scope**
-- **Ingestion script** (`src/agent/rag/ingest.ts`, run on doc change): one `##` question = one chunk, skip `TODO(owner)` chunks, strip HTML comments, prefix the file title, add a one-line Claude context per chunk, embed with `voyage-3.5`, upsert into Mongo.
-- **Atlas indexes:** a vector index and an Atlas Search (BM25) index on the knowledge collection — created once, documented in this folder.
+- **Ingestion script** (`src/agent/rag/ingest.ts`, run on doc change): one `##` question = one chunk, skip `TODO(owner)` chunks, strip HTML comments, prefix the file title, add a one-line Claude context per chunk, embed with `voyage-3.5`, upsert into the knowledge table (MongoDB then, Postgres since spec 023).
+- **Search indexes:** a vector index and a keyword index on the knowledge — Atlas Vector Search and Atlas Search at first; pgvector (HNSW) and a full-text GIN index since spec 023, created by `npm run db:migrate`.
 - **Retrieval:** the agent passes a self-contained question (no separate rewrite step — spec 013) → hybrid search, top 20 → `rerank-2.5`, top 4 → grounded answer naming its topic; empty or low-score retrieval → "I don't have that — here's how to contact us".
 - **Tests:** retrieval and faithfulness goldens taken from the knowledge files themselves (never invented policy — [`evals.md`](./evals.md) §15).
 
@@ -168,8 +168,8 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 
 **Scope**
 - **Opus 5.5 escalation** ([`reconciliation.md`](./reconciliation.md) Gap 4): stuck = step budget (8) hit, a repeated identical call, or the same tool failing twice; retry the turn once on Opus with the same tools and gate; still stuck → offer `submit_support_request`. Emit `reason: loop | step_budget | repeated_tool_error`.
-- **Per-user rate limits** ([`security.md`](./security.md) §10, Gap 17): keyed on `ctx.userId`, separate budgets for LLM turns, writes and Opus escalations, `rate-limiter-flexible` + Mongo, created lazily, on in every environment.
-- **Observability** ([`observability.md`](./observability.md)): OpenTelemetry SDK + the agent's own spans (OpenLLMetry dropped in spec 017), one trace per request across HTTP, agent, tools and Mongo, exported to LangSmith and a general OTLP backend; the minimum trace schema; the "page immediately" alerts (confirm-required write without confirmation, card/credential pattern in model I/O).
+- **Per-user rate limits** ([`security.md`](./security.md) §10, Gap 17): keyed on `ctx.userId`, separate budgets for LLM turns, writes and Opus escalations, `rate-limiter-flexible` + the database (MongoDB then, Postgres since spec 023), created lazily, on in every environment.
+- **Observability** ([`observability.md`](./observability.md)): OpenTelemetry SDK + the agent's own spans (OpenLLMetry dropped in spec 017), one trace per request across HTTP, agent, tools and the database, exported to LangSmith and a general OTLP backend; the minimum trace schema; the "page immediately" alerts (confirm-required write without confirmation, card/credential pattern in model I/O).
 - **Payment-boundary guard:** detect card-like or credential patterns in model input/output and block + alert.
 - **Prompt-cache check:** cache-read hit rate visible per turn; a drop means the static prompt or tool list changed.
 
@@ -186,7 +186,7 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 - **CI:** GitHub Actions runs the safety split on every PR (blocking at 100%) and the judged suite nightly or on demand, within a token budget.
 - **Model comparison:** the same suite on a single Opus 5.5 at lower effort vs the Sonnet + Opus-escalation cascade; keep whichever wins on quality, cost and latency.
 - **Online evals:** sampled LLM-judge on live traces; thumbs up/down in the chat; failing traces promoted into the golden set.
-- **Launch checklist:** production keys set in Vercel; `maxDuration` confirmed; Atlas indexes built in production; knowledge ingested; rate-limit budgets tuned from M6 data.
+- **Launch checklist:** production keys set in Vercel; `maxDuration` confirmed; `npm run db:migrate` run on production (tables and search indexes); `CRON_SECRET` set; knowledge ingested; rate-limit budgets tuned from M6 data.
 
 **Exit criteria:** CI gate green; launch checklist done; agent enabled for all signed-in users.
 
@@ -197,7 +197,7 @@ Resuming after a confirmation is another `POST /api/v1/agent/chat` with `{ threa
 | Item | Trigger |
 |---|---|
 | Long-term preference memory (LangGraph Store keyed by `user_id`) | Phase 2 personalization ([`architecture.md`](./architecture.md) §5) |
-| Typesense product search + `relevance` sort | Search evals fail on Mongo (Gap 8) |
+| Typesense product search + `relevance` sort | Search evals fail on the database search (Gap 8) |
 | Separate Haiku intent router | It beats self-routing on accuracy **and** task completion/latency (Gap 3) |
 | Read-only tools for guests | Product wants guest chat (Gap 16) |
 

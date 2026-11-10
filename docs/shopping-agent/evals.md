@@ -78,10 +78,10 @@ Reference-free — judge the answer against the retrieved context, not a gold st
 
 ## 6. Layer C — Agent evals
 
-> **As built (spec 020):** `evals/agent/`. There are 51 goldens across every §8 category except store knowledge (that's `npm run eval:knowledge`), run against a seeded catalog through the real router, tools and MongoDB.
+> **As built (spec 020):** `evals/agent/`. There are 51 goldens across every §8 category except store knowledge (that's `npm run eval:knowledge`), run against a seeded catalog through the real router, tools and database (Postgres since spec 023).
 > - **Deterministic checks:** tool correctness, confirmation-before-write, steps and escalation.
 > - **Judged:** task completion, and G-Eval rubrics for red-team and escalation. Opus 5.5 judges, and Sonnet 5.5 cross-checks turns Opus wrote.
-> - **`npm run eval:agent`** runs the cascade and Opus-only (`EVAL_SETUP`) within `EVAL_TOKEN_BUDGET`, writes `evals/agent/last-run.md` and prints the verdict. It needs `ANTHROPIC_API_KEY` and `MONGO_URL`, and runs in the CI `judged-evals` job.
+> - **`npm run eval:agent`** runs the cascade and Opus-only (`EVAL_SETUP`) within `EVAL_TOKEN_BUDGET`, writes `evals/agent/last-run.md` and prints the verdict. It needs `ANTHROPIC_API_KEY` and `TEST_DATABASE_URL`, and runs in the CI `judged-evals` job.
 > - **Without a key,** `npm test` proves the goldens against the tool schemas, replays every golden with an oracle model, and checks that wrong models fail.
 > - Thresholds and the comparison rule are in spec 020.
 
@@ -96,7 +96,7 @@ Reference-free — judge the answer against the retrieved context, not a gold st
 
 ## 7. Layer D — Safety / adversarial evals ⭐ (the differentiator)
 
-> **As built (spec 018):** the deterministic hard gates and red-team cases 1–7 and 10–12 run against a model *scripted to attack* (it calls tools directly, forges arguments, follows injected text), with the real agent router, tools and MongoDB: `MONGO_URL=… npm run eval:safety` (also part of `npm test`; no API key needed). Each run writes a one-screen report to `evals/safety/last-run.md`. Cases 8 and 9 are reported n/a until `cancel_order` exists; the gate fails once it does, so they get written. Whether the *real* model also behaves (refuses, ignores the injection) is judged with real models in spec 020.
+> **As built (spec 018):** the deterministic hard gates and red-team cases 1–7 and 10–12 run against a model *scripted to attack* (it calls tools directly, forges arguments, follows injected text), with the real agent router, tools and database: `TEST_DATABASE_URL=… npm run eval:safety` (also part of `npm test`; no API key needed). Each run writes a one-screen report to `evals/safety/last-run.md`. Cases 8 and 9 are reported n/a until `cancel_order` exists; the gate fails once it does, so they get written. Whether the *real* model also behaves (refuses, ignores the injection) is judged with real models in spec 020.
 
 This is where an action-taking agent earns trust. **Mostly deterministic hard gates** — a safety eval should not depend on an LLM's mood.
 
@@ -176,7 +176,7 @@ Three sources (don't rely on one):
 
 ## 11. CI integration (the gate)
 
-> **As built (spec 019):** `.github/workflows/ci.yml` in `mern-backend`. The `checks` job runs on every push: lint, build and `npm test` with MongoDB and Atlas local as services, then the safety gate (spec 018) as its own step, with its report in the job summary. In CI the gate fails, not skips, without a database. The `judged-evals` job runs only when started by hand (no schedule, to protect a small API budget), against its own Atlas local, and skips with a note until `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` are repository secrets. Making `checks` a required check on `main` is a repository setting for the owner.
+> **As built (spec 019):** `.github/workflows/ci.yml` in `mern-backend`. The `checks` job runs on every push: lint, build and `npm test` with a pgvector Postgres service (MongoDB and Atlas local until spec 023), then the safety gate (spec 018) as its own step, with its report in the job summary. In CI the gate fails, not skips, without a database. The `judged-evals` job runs only when started by hand (no schedule, to protect a small API budget), against its own Postgres, and skips with a note until `ANTHROPIC_API_KEY` and `VOYAGE_API_KEY` are repository secrets. Making `checks` a required check on `main` is a repository setting for the owner.
 >
 > **Running the judged evals by hand** (spec 020 decision log): Actions → CI → Run workflow. The inputs are cheap by default. Judged evals run only by hand (no schedule):
 >

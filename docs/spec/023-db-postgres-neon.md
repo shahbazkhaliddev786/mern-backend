@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| **Status** | In progress |
+| **Status** | Done — waiting on the owner's dry run on a Neon branch, and the pull request |
 | **Milestone** | Platform: before launch (M7 launch becomes spec 024) |
 | **Created** | 2026-11-04 |
 | **Updated** | 2026-11-10 |
-| **Closed by** | — |
+| **Closed by** | `9888fee`, `42e60cf`, `1aa8d7a`, `e23c3d4`, `bde67cb`, `ff610eb`, `2c7af33` and the docs commit, on `db-migration` |
 | **Repo** | `mern-backend` (branch `db-migration`); `mern-frontend` only if the open questions need it |
 
 ## Goal
@@ -126,19 +126,35 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 - [x] **4. Knowledge search** (`bde67cb`): `knowledge_chunks` on pgvector + full-text; the ingest and retrieval ported; the retrieval tests ported
 - [x] **5. The rest** (`ff610eb`): sessions, logs and expiry; MongoDB packages removed; CI moved to the Postgres service
 - [x] **6. Data** (`2c7af33`): the move script, tested against a local MongoDB. The dry run on a Neon branch is the owner's step, with their connection strings: `MONGO_SOURCE_URL=… DATABASE_URL=… npm run db:copy-from-mongo -- --dry-run`
-- [ ] **7. Docs:** `.env.example`, setup, the design docs (`architecture.md`, `tech-stack.md`, `phases.md`) and the spec index
+- [x] **7. Docs:** `.env.example`, setup, the design docs (`architecture.md`, `tech-stack.md`, `phases.md`) and the spec index
 
 ## Acceptance criteria
 
 - [x] No `mongoose`, `mongodb`, `connect-mongo`, `winston-mongodb` or `langgraph-checkpoint-mongodb` left in `package.json` or `src/` (stage 5: none in the dependency tree; comments still say where a response shape comes from in the MongoDB version).
-- [ ] Every API response has the same fields and types as before, with a contract test per route group on the main endpoints.
-- [ ] `npm test` passes against Postgres, with no database test skipped in CI.
+- [x] Every API response has the same fields and types as before: `src/services/contracts.pg.test.ts` replays the shapes captured from the MongoDB services, across products, carts, orders, users, admin and the dashboard.
+- [x] `npm test` passes against Postgres (417 tests), with no database test skipped in CI except the one-off copy tool's, which needs a MongoDB.
   - The safety gate still reads 17 pass, 1 n/a.
   - The oracle agent suite (spec 020) passes all 51 cases.
-- [ ] Knowledge retrieval returns the expected chunks for the existing retrieval tests. The knowledge evals' scores, once a key is available, are recorded and compared with Atlas.
+- [x] Knowledge retrieval returns the expected chunks for the existing retrieval tests (lexical floor 90%, Atlas 93%).
+- [ ] The knowledge evals' scores, once a key is available, are recorded and compared with Atlas. Owner: a judged run spends API credit.
 - [x] Records that expired by TTL still expire — test (`src/db/cleanup.pg.test.ts`).
-- [ ] **Checks:** lint 0 errors, build, CI green on `db-migration`.
-- [ ] **Data (if chosen):** the move script's counts match on a Neon branch dry run.
+- [x] **Checks:** lint 0 errors, build, CI green on `db-migration`.
+- [ ] **Data (if chosen):** the move script's counts match on a Neon branch dry run. Owner: run it with the connection strings (see the README).
+
+## Results
+
+- **Everything runs on PostgreSQL on Neon:** the store, the agent's memory, claims, limits and online evals, the store-knowledge search (pgvector + full text), sessions and expiry. No MongoDB package is left in the app.
+- **The API is unchanged:** a contract test holds every response shape to the MongoDB version's. Ids are UUIDs, and responses still use `_id`.
+- **Safer under load than before:** cart adds, stock deduction, the Stripe webhook and token rotation hold under concurrent requests. Each has a test that fails without its protection.
+- **Checks:** 417 tests pass. The safety gate reads 17 pass, 1 n/a; the oracle suite passes all 51 goldens; CI runs on Postgres alone.
+- **Owner's steps at switch-over:**
+  - set `DATABASE_URL` and `DATABASE_URL_UNPOOLED` (the Neon integration does this)
+  - run `npm run db:migrate`
+  - set `CRON_SECRET`
+  - copy the data if the live store has real records (dry run first)
+  - remove the MongoDB URL
+
+  The setup is in the README.
 
 ## Test plan
 
@@ -197,3 +213,4 @@ _None — resolved 2026-11-04, see the decision log._
 | 2026-11-10 | Left out with a reason: a product whose category or brand is gone, a deleted customer's cart, a cart line whose product is gone, an expired checkout; a deleted customer's order is kept without a user | Postgres requires those references; MongoDB let them dangle |
 | 2026-11-10 | The copy's test runs where a MongoDB is available and skips in CI, which no longer runs one | The one database test that may skip there, for a one-off tool |
 | 2026-11-10 | Locally, MongoDB comes from Google's Docker Hub mirror (`mirror.gcr.io`) | Docker Hub refused the pulls (rate limit) |
+| 2026-11-10 | The design docs in `mern-backend` are updated; their copy in `mern-frontend` is left as it was | Spec 023 keeps the frontend out of scope; the backend's copy is the one kept current |

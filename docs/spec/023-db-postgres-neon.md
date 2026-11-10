@@ -125,7 +125,7 @@ Retrieval returns the same shape, so `ask_store_knowledge` and the knowledge eva
 - [x] **3. Agent stores** (`1aa8d7a`): the checkpointer, claims, limits, feedback and samples; the agent's tests and the safety gate ported
 - [x] **4. Knowledge search** (`bde67cb`): `knowledge_chunks` on pgvector + full-text; the ingest and retrieval ported; the retrieval tests ported
 - [x] **5. The rest** (`ff610eb`): sessions, logs and expiry; MongoDB packages removed; CI moved to the Postgres service
-- [ ] **6. Data:** the move script and a dry run on a Neon branch (if chosen)
+- [x] **6. Data** (`2c7af33`): the move script, tested against a local MongoDB. The dry run on a Neon branch is the owner's step, with their connection strings: `MONGO_SOURCE_URL=… DATABASE_URL=… npm run db:copy-from-mongo -- --dry-run`
 - [ ] **7. Docs:** `.env.example`, setup, the design docs (`architecture.md`, `tech-stack.md`, `phases.md`) and the spec index
 
 ## Acceptance criteria
@@ -190,3 +190,10 @@ _None — resolved 2026-11-04, see the decision log._
 | 2026-11-10 | Each write deletes up to 100 of its table's expired rows; reads already skip expired ones | The daily sweep then has little left, and nothing expired is used before it runs |
 | 2026-11-10 | The health check's `database` field is `{ connected }`; MongoDB's `readyState` is gone | Nothing in the frontend or CI reads it |
 | 2026-11-10 | Guest carts held in MongoDB sessions aren't carried over | They're anonymous and short-lived; signed-in carts are already in Postgres |
+| 2026-11-10 | The copy tool keeps its own MongoDB driver (`scripts/copy-from-mongo` has its own `package.json`) | The app keeps no MongoDB package; the folder is deleted once the move is done |
+| 2026-11-10 | Each ObjectId becomes a UUID derived from it (version 5) | References keep pointing at the same records, and running the copy again updates rows instead of adding new ones, so it can be repeated just before switching |
+| 2026-11-10 | The whole copy is one transaction, not one per table group; `--dry-run` makes the same writes and rolls them back | It lands whole or not at all, and the dry run checks the constraints and counts too |
+| 2026-11-10 | Copied: users with their password hashes and refresh tokens, the catalog, carts, orders, checkouts still open, the knowledge with its embeddings. Not copied: codes, uploads, sessions, logs, limits and the agent's conversations | Customers keep their password and stay signed in, and re-embedding is saved; the rest expires anyway or starts fresh |
+| 2026-11-10 | Left out with a reason: a product whose category or brand is gone, a deleted customer's cart, a cart line whose product is gone, an expired checkout; a deleted customer's order is kept without a user | Postgres requires those references; MongoDB let them dangle |
+| 2026-11-10 | The copy's test runs where a MongoDB is available and skips in CI, which no longer runs one | The one database test that may skip there, for a one-off tool |
+| 2026-11-10 | Locally, MongoDB comes from Google's Docker Hub mirror (`mirror.gcr.io`) | Docker Hub refused the pulls (rate limit) |

@@ -1,11 +1,11 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getMyOrderById } from '../../services/order.service.js';
-import { OBJECT_ID_PATTERN, safely, toolError, toolResult } from './helpers.js';
+import { ID_PATTERN, safely, toolError, toolResult } from './helpers.js';
 import { READ_TOOL_METADATA, type ToolContext } from './types.js';
 
 const schema = z.object({
-  order_id: z.string().regex(OBJECT_ID_PATTERN, 'Not an order id').describe('The order id, as shown by view_orders or on the My Orders page'),
+  order_id: z.string().regex(ID_PATTERN, 'Not an order id').describe('The order id, as shown by view_orders or on the My Orders page'),
 });
 
 export const getOrderStatusTool = (ctx: ToolContext) =>

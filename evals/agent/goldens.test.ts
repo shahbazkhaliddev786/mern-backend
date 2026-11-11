@@ -8,7 +8,8 @@ import { argsMatch, completed, CONFIRM_REQUIRED_TOOLS, costOf, escalationPrecisi
 
 const goldens = loadGoldens();
 const catalog = loadCatalog();
-const fakeId = (n: number) => n.toString(16).padStart(24, '0');
+// Stand-ins for the seeded ids: UUID-shaped, as the tools' schemas require (spec 023).
+const fakeId = (n: number) => `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}`;
 const skus = Object.fromEntries(['MUG-1', 'BOWL-1', ...catalog.map((p) => p.sku)].map((sku, i) => [sku, fakeId(i + 1)]));
 const ids = { skus, aliceOrder: fakeId(900), bobOrder: fakeId(901) };
 

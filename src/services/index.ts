@@ -1,5 +1,3 @@
-export { connectDB } from './db.service.js';
-
 export {
     registerUser,
     sendOTP,
@@ -23,8 +21,7 @@ export {
     removeFromCart,
     updateCartItem,
     clearCart,
-    calculateCartTotals,
-    CART_ITEM_POPULATE
+    calculateCartTotals
 } from './cart.service.js'
 
 export {

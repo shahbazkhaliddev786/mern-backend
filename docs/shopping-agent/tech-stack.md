@@ -2,7 +2,7 @@
 
 > Full stack organized by architectural layer. Each row: **technology → package/model → role → one-line why.** Companion to [`architecture.md`](./architecture.md) (diagram), [`observability.md`](./observability.md), [`evals.md`](./evals.md), and [`security.md`](./security.md).
 
-**At a glance:** MERN · LangGraph.js · Claude Sonnet 5.5 + Haiku 5.5 (+ Opus 5.5 escalation) · MongoDB product search (Typesense only if evals need it) · RAG (Voyage embeddings + MongoDB Atlas hybrid + Voyage rerank) · Zod tool schemas · short-term memory (Mongo checkpointer) · OpenTelemetry → LangSmith · DeepEval-TS. One backend language (Node/TS), one datastore (MongoDB).
+**At a glance:** MERN · LangGraph.js · Claude Sonnet 5.5 + Haiku 5.5 (+ Opus 5.5 escalation) · SQL product search (Typesense only if evals need it) · RAG (Voyage embeddings + pgvector/full-text hybrid + Voyage rerank) · Zod tool schemas · short-term memory (Postgres checkpointer) · OpenTelemetry → LangSmith · DeepEval-TS. One backend language (Node/TS), one datastore (PostgreSQL on Neon, through Drizzle; MongoDB until spec 023).
 
 ---
 
@@ -65,10 +65,10 @@ Full catalog with schemas/notes: [`architecture.md`](./architecture.md) §4.
 
 | Tech | Package / Model | Role | Why |
 |---|---|---|---|
-| **Product search** | MongoDB query (existing `getAllProductsService`) in v1; Typesense (`typesense`) only if evals need it | Faceted catalog search | Search problem, not RAG — exact filters (price, stock); the catalog is small enough for Mongo |
+| **Product search** | SQL query (existing `getAllProductsService`) in v1; Typesense (`typesense`) only if evals need it | Faceted catalog search | Search problem, not RAG — exact filters (price, stock); the catalog is small enough for the database |
 | Search question | The agent model (Sonnet 5.5), in the tool call | A self-contained question for `ask_store_knowledge` | Conversational turns aren't searchable raw; the agent already sees the conversation, so a separate rewrite hop was dropped (spec 013) |
 | Embeddings | **Voyage `voyage-3.5`** (`voyageai`) | Vectorize store-knowledge chunks | Claude-native recommended embeddings |
-| Vector + lexical | MongoDB Atlas Vector Search + Atlas Search (BM25) | Hybrid retrieve (top ~20) | Keyword + semantic; one datastore |
+| Vector + lexical | pgvector (HNSW, cosine) + Postgres full text (`tsvector`, `ts_rank_cd`), fused with RRF | Hybrid retrieve (top ~20) | Keyword + semantic; one datastore |
 | Rerank | **Voyage `rerank-2.5`** | Precision rerank (top ~4) | Cheap precision bump; wrong answer = false promise |
 | Chunking | Structural + Anthropic Contextual Retrieval | Ingestion: 1 logical unit/chunk + context prefix | Docs pre-structured; fixed-size splits mid-policy |
 
@@ -78,9 +78,9 @@ Full catalog with schemas/notes: [`architecture.md`](./architecture.md) §4.
 
 | Tech | Package | Role | Why |
 |---|---|---|---|
-| MongoDB Atlas | `mongodb` / `mongoose` | `products`, `orders`, `pendingcheckouts`, `users`, `carts` | MERN DB; authoritative records |
-| Atlas Vector Search | `$vectorSearch` | Store-knowledge vector index | Reuse DB — no separate Pinecone/Qdrant |
-| Atlas Search | `$search` (Lucene BM25) | Lexical half of hybrid | Keeps hybrid retrieval in one DB |
+| PostgreSQL on Neon | `drizzle-orm` over `pg` (pooled URL); `drizzle-kit` migrations | `products`, `orders`, `pending_checkouts`, `users`, `carts`, `cart_items`, sessions (`connect-pg-simple`), rate limits (`RateLimiterPostgres`) | Authoritative records (spec 023) |
+| pgvector | `vector(1024)`, HNSW `vector_cosine_ops` | Store-knowledge vector index | Same DB — no separate Pinecone/Qdrant |
+| Postgres full text | generated `tsvector`, GIN index | Lexical half of hybrid | Keeps hybrid retrieval in one DB |
 
 ---
 
@@ -88,9 +88,9 @@ Full catalog with schemas/notes: [`architecture.md`](./architecture.md) §4.
 
 | Tech | Package | Role | Status | Why |
 |---|---|---|---|---|
-| **Short-term** | `@langchain/langgraph-checkpoint-mongodb` | Thread state (conversation) | ✅ now | Reference resolution: "add the blue one", "yes confirm" |
-| Long-term (structured) | Mongo collections + tools | Orders/profile/cart | ✅ via tools | Authoritative data — never paraphrased from LLM memory |
-| Long-term (inferred) | LangGraph `BaseStore` (Mongo), keyed by `user_id` | Learned preferences | 🟡 phase 2 | Personalization; bounded, with privacy controls |
+| **Short-term** | `@langchain/langgraph-checkpoint-postgres` (`PostgresSaver`) | Thread state (conversation) | ✅ now | Reference resolution: "add the blue one", "yes confirm" |
+| Long-term (structured) | Postgres tables + tools | Orders/profile/cart | ✅ via tools | Authoritative data — never paraphrased from LLM memory |
+| Long-term (inferred) | LangGraph `BaseStore` (Postgres), keyed by `user_id` | Learned preferences | 🟡 phase 2 | Personalization; bounded, with privacy controls |
 
 ---
 
@@ -109,7 +109,7 @@ Full catalog with schemas/notes: [`architecture.md`](./architecture.md) §4.
 
 | Tech | Package | Role | Why |
 |---|---|---|---|
-| **OpenTelemetry** | `@opentelemetry/sdk-node`, `@opentelemetry/api`, `instrumentation-http`, `instrumentation-mongodb` | Tracing backbone: HTTP and MongoDB spans from the instrumentations; `agent.turn`, model-call (`gen_ai.*`, tokens, cache rate) and per-tool spans from the agent's own code | Correlate LLM + Mongo + HTTP in one trace; no vendor lock-in. Built in spec 017 |
+| **OpenTelemetry** | `@opentelemetry/sdk-node`, `@opentelemetry/api`, `instrumentation-http`, `instrumentation-pg` | Tracing backbone: HTTP and Postgres spans (no query values) from the instrumentations; `agent.turn`, model-call (`gen_ai.*`, tokens, cache rate) and per-tool spans from the agent's own code | Correlate LLM + database + HTTP in one trace; no vendor lock-in. Built in spec 017, Postgres since spec 023 |
 | ~~OpenLLMetry~~ | ~~`@traceloop/node-server-sdk`~~ | Removed (spec 017) | Its LangChain instrumentation gave a flat trace (every span directly under the request, tools unnamed, queries not under their tool). The agent's own spans nest correctly and carry no message text |
 | LangSmith | `langsmith` | LLM-native trajectory view + online evals | Gets LangChain's own runs (prompts and steps) **and** the request traces over OTLP, linked by `otel_trace_id` in the run metadata. Its OpenTelemetry mode wasn't used: it only covers its own `traceable()` wrapper, not LangGraph |
 | General backend | Grafana/Tempo · Datadog (OTLP) | Full-stack metrics/traces | Vendor-neutral target |
@@ -130,7 +130,7 @@ Full catalog with schemas/notes: [`architecture.md`](./architecture.md) §4.
 ## One-language / one-datastore summary
 
 - **Language:** everything backend is **Node/TS** — agent, tools, evals (DeepEval-TS), OTel. No Python service.
-- **Datastore:** everything is **MongoDB Atlas** — app data, vector index, lexical index, short-term memory checkpoints, (phase-2) preference store. No separate vector DB.
+- **Datastore:** everything is **PostgreSQL on Neon** — app data, vector index, lexical index, short-term memory checkpoints, sessions, rate limits, (phase-2) preference store. No separate vector DB. (MongoDB Atlas until spec 023.)
 - **Models:** **Claude** for reasoning (Sonnet 5.5 + Haiku 5.5, Opus 5.5 for escalation and offline eval judging), **Voyage** for embeddings + rerank.
 
 > **Interview line:** "I kept it to one backend language and one datastore deliberately — fewer moving parts, one trace to debug, one place for authz. Complexity is a cost I only pay when the use case demands it."

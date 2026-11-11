@@ -1,14 +1,14 @@
 // Online evals (spec 021, evals.md §12): live turns sampled for the daily Haiku judge, and the
 // customers' thumbs up/down. Both keep a redacted snapshot of the turn, so a flagged one can still
-// be reviewed after its checkpoint expires. TTL indexes come from `npm run agent:setup`.
+// be reviewed after its checkpoint expires. Each row carries its `expires_at` (spec 023).
 
 import type { BaseMessage } from '@langchain/core/messages';
-import mongoose, { type Connection } from 'mongoose';
+import { sql } from 'drizzle-orm';
+import { getDb, type Executor } from '../db/client.js';
+import { agentFeedback, agentTurnSamples, type ReviewJson, type TurnSnapshotJson } from '../db/schema/index.js';
 import { redact } from './guard.js';
 import { visibleText } from './stream.js';
-
-export const TURN_SAMPLES_COLLECTION = 'agent_turn_samples';
-export const FEEDBACK_COLLECTION = 'agent_feedback';
+import { cleanupAfterWrite } from '../db/expiry.js';
 
 // Spec 021: unflagged records go with the checkpoints; flagged ones wait for review, up to a limit.
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -18,12 +18,8 @@ export const expiresAfter = (days: number, from = new Date()) => new Date(from.g
 /** Tool results are long (product lists, orders); the judge needs the gist, not all of it. */
 const RESULT_LIMIT = 2000;
 
-export interface TurnSnapshot {
-  /** The customer's message that started the turn. */
-  message: string;
-  calls: { name: string; args: string; result: string }[];
-  reply: string;
-}
+/** The customer's message that started the turn, the tools it ran, and the reply; all redacted. */
+export type TurnSnapshot = TurnSnapshotJson;
 
 const typeOf = (m: BaseMessage) => m.getType();
 
@@ -52,95 +48,70 @@ export function snapshotTurn(messages: BaseMessage[], replyIndex = messages.leng
   return { message: redact(visibleText(messages[start]!.content)), calls, reply: redact(visibleText(reply.content)) };
 }
 
-export interface Review {
-  status: 'promoted' | 'dismissed';
-  note?: string;
-  at: Date;
-}
+/** A reviewer's decision on a flagged turn; `at` is an ISO date, as stored. */
+export type Review = ReviewJson;
 
-export interface TurnSample {
-  /** Hashed, as in the turn's span: the judge never needs to know who it was. */
-  user: string;
-  threadId: string;
-  replyId: string;
-  createdAt: Date;
-  expiresAt: Date;
-  promptVersion: number;
-  outcome: string;
-  escalated: boolean;
-  snapshot: TurnSnapshot;
-  /** Set by the online judge. */
-  scores?: Record<string, number>;
-  judgedAt?: Date;
-  /** The metrics below their thresholds; empty when none. */
-  flags?: string[];
-  review?: Review;
-}
+/** A sampled turn, with the judge's scores once it has run. */
+export type TurnSample = typeof agentTurnSamples.$inferSelect;
+/** What a finished turn saves; the judge fills in the rest. */
+export type NewTurnSample = Pick<TurnSample, 'user' | 'threadId' | 'replyId' | 'promptVersion' | 'outcome' | 'escalated' | 'snapshot'>;
 
 export const FEEDBACK_REASONS = ['wrong_answer', 'wrong_action', 'didnt_understand', 'other'] as const;
 
-export interface Feedback {
+/** A customer's vote on a reply; a thumbs-down keeps its snapshot for review. */
+export type Feedback = typeof agentFeedback.$inferSelect;
+export interface Vote {
   userId: string;
   threadId: string;
   replyId: string;
   rating: 'up' | 'down';
   reason?: (typeof FEEDBACK_REASONS)[number];
   comment?: string;
-  /** Kept on a thumbs-down, for review. */
   snapshot?: TurnSnapshot;
-  createdAt: Date;
-  updatedAt: Date;
-  expiresAt: Date;
-  review?: Review;
 }
 
-const db = (connection: Connection) => {
-  if (!connection.db) throw new Error('Online evals need an open MongoDB connection');
-  return connection.db;
-};
-export const turnSamples = (connection: Connection = mongoose.connection) => db(connection).collection<TurnSample>(TURN_SAMPLES_COLLECTION);
-export const feedbackRecords = (connection: Connection = mongoose.connection) => db(connection).collection<Feedback>(FEEDBACK_COLLECTION);
-
-export async function saveTurnSample(sample: Omit<TurnSample, 'createdAt' | 'expiresAt'>, connection?: Connection): Promise<void> {
+export async function saveTurnSample(sample: NewTurnSample, db: Executor = getDb()): Promise<void> {
   const now = new Date();
-  await turnSamples(connection).insertOne({ ...sample, createdAt: now, expiresAt: expiresAfter(RETENTION_DAYS.unflagged, now) });
+  await db.insert(agentTurnSamples).values({ ...sample, createdAt: now, expiresAt: expiresAfter(RETENTION_DAYS.unflagged, now) });
+  await cleanupAfterWrite('agent_turn_samples');
 }
 
-/** One vote per customer and reply: a new vote replaces the old one. */
-export async function saveFeedback(
-  vote: Pick<Feedback, 'userId' | 'threadId' | 'replyId' | 'rating' | 'reason' | 'comment' | 'snapshot'>,
-  connection?: Connection,
-): Promise<void> {
+/**
+ * One vote per customer and reply: a new vote replaces the old one, in one statement. A changed
+ * vote drops what no longer applies (a thumbs-up keeps no snapshot, reason or comment). Spec 022:
+ * the same vote again keeps its review decision (and the expiry that came with it); a changed
+ * vote is new information, so it goes back to the queue.
+ */
+export async function saveFeedback(vote: Vote, db: Executor = getDb()): Promise<void> {
   const now = new Date();
   const down = vote.rating === 'down';
-  const set: Partial<Feedback> = {
-    threadId: vote.threadId,
-    rating: vote.rating,
-    updatedAt: now,
-    expiresAt: expiresAfter(down ? RETENTION_DAYS.flagged : RETENTION_DAYS.unflagged, now),
-    ...(vote.reason ? { reason: vote.reason } : {}),
-    ...(vote.comment ? { comment: vote.comment } : {}),
-    ...(down && vote.snapshot ? { snapshot: vote.snapshot } : {}),
-  };
-  // A changed vote drops what no longer applies (a thumbs-up keeps no snapshot, reason or comment).
-  // Spec 022: the same vote again keeps its review decision (and the expiry that came with it);
-  // a changed vote is new information, so it goes back to the queue.
-  const previous = await feedbackRecords(connection).findOne({ userId: vote.userId, replyId: vote.replyId }, { projection: { rating: 1, review: 1 } });
-  const keepReview = previous?.rating === vote.rating && previous.review !== undefined;
-  if (keepReview) delete set.expiresAt;
-  const cleared = keepReview ? (['reason', 'comment', 'snapshot'] as const) : (['reason', 'comment', 'snapshot', 'review'] as const);
-  const unset: Record<string, ''> = Object.fromEntries(cleared.filter((key) => !(key in set)).map((key) => [key, '' as const]));
-  await feedbackRecords(connection).updateOne(
-    { userId: vote.userId, replyId: vote.replyId },
-    { $set: set, $setOnInsert: { createdAt: now }, ...(Object.keys(unset).length ? { $unset: unset } : {}) } as mongoose.mongo.UpdateFilter<Feedback>,
-    { upsert: true },
-  );
-}
-
-/** For `npm run agent:setup`: expiry, one vote per customer and reply, and the judge's queue. */
-export async function ensureOnlineEvalIndexes(connection: Connection = mongoose.connection): Promise<void> {
-  await turnSamples(connection).createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-  await turnSamples(connection).createIndex({ judgedAt: 1, createdAt: 1 });
-  await feedbackRecords(connection).createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-  await feedbackRecords(connection).createIndex({ userId: 1, replyId: 1 }, { unique: true });
+  const sameRating = sql`${agentFeedback.rating} = excluded.rating`;
+  await db
+    .insert(agentFeedback)
+    .values({
+      userId: vote.userId,
+      threadId: vote.threadId,
+      replyId: vote.replyId,
+      rating: vote.rating,
+      reason: vote.reason ?? null,
+      comment: vote.comment ?? null,
+      snapshot: down && vote.snapshot ? vote.snapshot : null,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: expiresAfter(down ? RETENTION_DAYS.flagged : RETENTION_DAYS.unflagged, now),
+    })
+    .onConflictDoUpdate({
+      target: [agentFeedback.userId, agentFeedback.replyId],
+      set: {
+        threadId: sql`excluded.thread_id`,
+        rating: sql`excluded.rating`,
+        reason: sql`excluded.reason`,
+        comment: sql`excluded.comment`,
+        snapshot: sql`excluded.snapshot`,
+        updatedAt: sql`excluded.updated_at`,
+        review: sql`case when ${sameRating} then ${agentFeedback.review} end`,
+        expiresAt: sql`case when ${sameRating} and ${agentFeedback.review} is not null then ${agentFeedback.expiresAt} else excluded.expires_at end`,
+      },
+    });
+  await cleanupAfterWrite('agent_feedback');
 }

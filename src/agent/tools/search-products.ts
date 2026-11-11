@@ -1,5 +1,6 @@
 import { tool } from '@langchain/core/tools';
-import { Brand, Category } from '../../models/index.js';
+import { findBrandsByName } from '../../services/brand.service.js';
+import { findCategoriesByName } from '../../services/category.service.js';
 import { getAllProductsService } from '../../services/product.service.js';
 import { productQuerySchema, SORT_TO_SERVICE, type ProductQuery } from '../../validations/product-query.schema.js';
 import { escapeRegex, productUrl, refName, safely, toolResult } from './helpers.js';
@@ -8,21 +9,18 @@ import { READ_TOOL_METADATA, type ToolContext } from './types.js';
 export const SEARCH_PAGE_SIZE = 8;
 
 // Case-insensitive exact name match; names that match nothing are reported, never guessed.
-async function resolveNames(model: typeof Brand | typeof Category, names: string[] | undefined) {
+async function resolveNames(find: (names: string[]) => Promise<{ _id: string; name: string }[]>, names: string[] | undefined) {
   if (!names?.length) return { ids: undefined, unknown: [] as string[] };
-  const docs = await model
-    .find({ name: { $in: names.map((name) => new RegExp(`^${escapeRegex(name)}$`, 'i')) } })
-    .select('name')
-    .lean<{ _id: unknown; name: string }[]>();
-  const found = new Set(docs.map((doc) => doc.name.toLowerCase()));
-  return { ids: docs.map((doc) => String(doc._id)), unknown: names.filter((name) => !found.has(name.toLowerCase())) };
+  const rows = await find(names);
+  const found = new Set(rows.map((row) => row.name.toLowerCase()));
+  return { ids: rows.map((row) => row._id), unknown: names.filter((name) => !found.has(name.toLowerCase())) };
 }
 
 export const searchProductsTool = (ctx: ToolContext) =>
   tool(
     safely('search_products', ctx.userId, async (args: ProductQuery) => {
-      const categories = await resolveNames(Category, args.categories);
-      const brands = await resolveNames(Brand, args.brands);
+      const categories = await resolveNames(findCategoriesByName, args.categories);
+      const brands = await resolveNames(findBrandsByName, args.brands);
       // Every requested category (or brand) was unknown: say so rather than searching everything.
       if ((args.categories?.length && !categories.ids?.length) || (args.brands?.length && !brands.ids?.length)) {
         return toolResult({ results: [], page: 1, totalPages: 0, totalItems: 0, unknownCategories: categories.unknown, unknownBrands: brands.unknown });

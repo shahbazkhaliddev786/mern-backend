@@ -1,14 +1,14 @@
-// `npm run agent:ingest` — loads mern-backend/knowledge/ into the knowledge collection (spec 013).
-// Run it after `agent:setup`, and again whenever the knowledge files change; unchanged chunks
-// cost nothing. `--dry-run` only prints the chunks, with no database, Claude or Voyage calls.
+// `npm run agent:ingest` — loads mern-backend/knowledge/ into the knowledge_chunks table (spec 013)
+// of DATABASE_URL. Run it after `npm run db:migrate`, and again whenever the knowledge files change;
+// unchanged chunks cost nothing. `--dry-run` only prints the chunks, with no database, Claude or
+// Voyage calls.
 
-import mongoose from 'mongoose';
 import config from '../config/config.js';
-import { connectDB } from '../services/db.service.js';
-import { getAgentConfig, KNOWLEDGE } from './config.js';
+import { closeDb, getDb } from '../db/client.js';
+import { getAgentConfig } from './config.js';
 import { chunkKnowledge, readKnowledgeFiles } from './rag/chunk.js';
 import { createContextWriter } from './rag/context.js';
-import { ingestKnowledge, type KnowledgeDoc } from './rag/ingest.js';
+import { ingestKnowledge } from './rag/ingest.js';
 import { createVoyage } from './rag/voyage.js';
 
 // Operator output for a one-off command, so stdout rather than the app logger.
@@ -26,24 +26,23 @@ async function main() {
 
   // The keys are needed whether or not the agent is switched on in this environment.
   const { anthropicApiKey, voyageApiKey } = getAgentConfig({ ...config, AGENT_ENABLED: 'true' });
-  const connection = await connectDB();
-  const db = connection.db;
-  if (!db) throw new Error('No database handle after connectDB()');
-
   const report = await ingestKnowledge(files, {
-    collection: db.collection<KnowledgeDoc>(KNOWLEDGE.collection),
+    db: getDb(),
     embed: createVoyage(voyageApiKey).embed,
     writeContext: createContextWriter(anthropicApiKey),
   });
 
-  print(`Knowledge on database "${db.databaseName}":`);
+  // The host and database name only: never the credentials in the URL.
+  const target = new URL(config.DATABASE_URL);
+  print(`Knowledge on ${target.host}${target.pathname}:`);
   print(`  added: ${report.added.length}, updated: ${report.updated.length}, unchanged: ${report.unchanged}, removed: ${report.removed.length}`);
   for (const id of [...report.added, ...report.updated]) print(`  + ${id}`);
   for (const id of report.removed) print(`  - ${id}`);
   print(`  skipped (TODO(owner)): ${report.skipped.length}`);
 }
 
-// Exit explicitly: the app logger's MongoDB transport keeps its own connection open.
+// Exit explicitly: the app logger's MongoDB transport (until spec 023 stage 5) keeps its own
+// connection open.
 main()
   .then(() => 0)
   .catch((error: unknown) => {
@@ -51,6 +50,6 @@ main()
     return 1;
   })
   .then(async (code) => {
-    await mongoose.disconnect();
+    await closeDb();
     process.exit(code);
   });

@@ -1,11 +1,13 @@
 // Store-knowledge retrieval (spec 013): vector and keyword search in parallel, reciprocal-rank
 // fusion, Voyage rerank, then a relevance cut-off. Every external call comes in through
-// RetrievalDeps, so the pipeline is tested without Voyage or Atlas.
+// RetrievalDeps, so the pipeline is tested without Voyage or a database. The searches run on
+// Postgres (spec 023): pgvector by meaning, full-text search by words.
 
-import type { mongo } from 'mongoose';
+import { asc, cosineDistance, desc, sql } from 'drizzle-orm';
+import { getDb, type Executor } from '../../db/client.js';
+import { knowledgeChunks } from '../../db/schema/index.js';
 import { KNOWLEDGE } from '../config.js';
 import { chunkDocument } from './chunk.js';
-import type { KnowledgeDoc } from './ingest.js';
 import type { EmbedFn, RerankFn } from './voyage.js';
 
 export interface SearchHit {
@@ -77,52 +79,47 @@ export async function searchKnowledge(question: string, deps: RetrievalDeps): Pr
   return { found: passages.length > 0, passages };
 }
 
-const HIT_PROJECTION = { title: 1, question: 1, text: 1, context: 1 } as const;
-const toHit = (doc: KnowledgeDoc | mongo.Document): SearchHit => ({
-  id: String(doc._id),
-  title: String(doc.title),
-  question: String(doc.question),
-  text: String(doc.text),
-  context: (doc.context as string | null | undefined) ?? null,
-});
+const hitColumns = {
+  id: knowledgeChunks.id,
+  title: knowledgeChunks.title,
+  question: knowledgeChunks.question,
+  text: knowledgeChunks.text,
+  context: knowledgeChunks.context,
+};
 
-/** The real searches on Atlas, with Voyage for the query embedding and the rerank. */
-export function createRetrievalDeps(collection: mongo.Collection<KnowledgeDoc>, voyage: { embed: EmbedFn; rerank: RerankFn }): RetrievalDeps {
+/** The nearest chunks by meaning: cosine distance, the order the HNSW index (vector_cosine_ops) serves. */
+export const vectorSearchQuery = (db: Executor, vector: number[], limit: number) =>
+  db.select(hitColumns).from(knowledgeChunks).orderBy(cosineDistance(knowledgeChunks.embedding, vector)).limit(limit);
+
+/**
+ * The question's English words, any of them, as Atlas's text search matched any word: the words
+ * plainto_tsquery finds (stemmed, stop words dropped), joined with OR instead of AND.
+ */
+const anyWord = (question: string) => sql`replace(plainto_tsquery('english', ${question})::text, '&', '|')::tsquery`;
+
+/**
+ * The best chunks by words, from the GIN-indexed `search` column. Title and question weigh most,
+ * then the context line, then the answer, as the Atlas search boosted the question.
+ */
+export const textSearchQuery = (db: Executor, question: string, limit: number) =>
+  db
+    .select(hitColumns)
+    .from(knowledgeChunks)
+    .where(sql`${knowledgeChunks.search} @@ ${anyWord(question)}`)
+    .orderBy(desc(sql`ts_rank_cd(${knowledgeChunks.search}, ${anyWord(question)})`), asc(knowledgeChunks.id))
+    .limit(limit);
+
+/** The real searches on Postgres, with Voyage for the query embedding and the rerank. */
+export function createRetrievalDeps(voyage: { embed: EmbedFn; rerank: RerankFn }, db?: Executor): RetrievalDeps {
   return {
     embedQuery: async (question) => {
       const [vector] = await voyage.embed([question], 'query');
       if (!vector) throw new Error('Voyage returned no query embedding');
       return vector;
     },
-    vectorSearch: async (vector, limit) =>
-      (
-        await collection
-          .aggregate([
-            { $vectorSearch: { index: KNOWLEDGE.vectorIndex, path: 'embedding', queryVector: vector, numCandidates: limit * 5, limit } },
-            { $project: HIT_PROJECTION },
-          ])
-          .toArray()
-      ).map(toHit),
-    textSearch: async (question, limit) =>
-      (
-        await collection
-          .aggregate([
-            {
-              $search: {
-                index: KNOWLEDGE.textIndex,
-                compound: {
-                  should: [
-                    { text: { query: question, path: 'question', score: { boost: { value: 2 } } } },
-                    { text: { query: question, path: ['text', 'title', 'context'] } },
-                  ],
-                },
-              },
-            },
-            { $limit: limit },
-            { $project: HIT_PROJECTION },
-          ])
-          .toArray()
-      ).map(toHit),
+    // Two queries, run side by side by searchKnowledge: the word search while Voyage embeds.
+    vectorSearch: (vector, limit) => vectorSearchQuery(db ?? getDb(), vector, limit),
+    textSearch: (question, limit) => textSearchQuery(db ?? getDb(), question, limit),
     rerank: voyage.rerank,
   };
 }

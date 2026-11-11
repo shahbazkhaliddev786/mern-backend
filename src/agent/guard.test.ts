@@ -23,6 +23,7 @@ describe('findSensitive: cards', () => {
       'call +1 (555) 234-5678',
       'postal code 54000, phone 03001234567',
       'product 64b0000000000000000000c1',
+      'product 23456789-1234-4123-8123-123456789012', // a UUID, all digits
       '4242424242424241', // fails the checksum
       '1234 5678 9012 3456 7', // doesn't start like a card
       'tracking 12345678901234567890123', // too long

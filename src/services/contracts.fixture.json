@@ -1,0 +1,586 @@
+{
+  "createCategory": {
+    "_id": "id",
+    "createdAt": "date",
+    "name": "string",
+    "updatedAt": "date"
+  },
+  "getAllCategories": [
+    {
+      "_id": "id",
+      "createdAt": "date",
+      "name": "string",
+      "updatedAt": "date"
+    }
+  ],
+  "createBrand": {
+    "_id": "id",
+    "createdAt": "date",
+    "name": "string",
+    "updatedAt": "date"
+  },
+  "createProduct": {
+    "_id": "id",
+    "brand": {
+      "_id": "id",
+      "name": "string"
+    },
+    "category": {
+      "_id": "id",
+      "name": "string"
+    },
+    "createdAt": "date",
+    "description": "string",
+    "images": [],
+    "name": "string",
+    "price": "number",
+    "stock": "number",
+    "updatedAt": "date"
+  },
+  "getAllProducts": {
+    "pagination": {
+      "currentPage": "number",
+      "hasNext": "boolean",
+      "hasPrev": "boolean",
+      "totalItems": "number",
+      "totalPages": "number"
+    },
+    "products": [
+      {
+        "_id": "id",
+        "brand": {
+          "_id": "id",
+          "name": "string"
+        },
+        "category": {
+          "_id": "id",
+          "name": "string"
+        },
+        "createdAt": "date",
+        "description": "string",
+        "images": [],
+        "name": "string",
+        "price": "number",
+        "stock": "number",
+        "updatedAt": "date"
+      }
+    ]
+  },
+  "getProductById": {
+    "_id": "id",
+    "brand": {
+      "_id": "id",
+      "name": "string"
+    },
+    "category": {
+      "_id": "id",
+      "name": "string"
+    },
+    "createdAt": "date",
+    "description": "string",
+    "images": [],
+    "name": "string",
+    "price": "number",
+    "stock": "number",
+    "updatedAt": "date"
+  },
+  "updateProduct": {
+    "_id": "id",
+    "brand": {
+      "_id": "id",
+      "name": "string"
+    },
+    "category": {
+      "_id": "id",
+      "name": "string"
+    },
+    "createdAt": "date",
+    "description": "string",
+    "images": [],
+    "name": "string",
+    "price": "number",
+    "stock": "number",
+    "updatedAt": "date"
+  },
+  "getUserById": {
+    "_id": "id",
+    "createdAt": "date",
+    "email": "string",
+    "isVerified": "boolean",
+    "name": "string",
+    "role": "string",
+    "updatedAt": "date"
+  },
+  "addToCart": {
+    "_id": "id",
+    "createdAt": "date",
+    "items": [
+      {
+        "_id": "id",
+        "product": {
+          "_id": "id",
+          "brand": {
+            "_id": "id",
+            "name": "string"
+          },
+          "category": {
+            "_id": "id",
+            "name": "string"
+          },
+          "images": [],
+          "name": "string",
+          "price": "number",
+          "stock": "number"
+        },
+        "quantity": "number"
+      }
+    ],
+    "itemsCount": "number",
+    "subtotal": "number",
+    "updatedAt": "date",
+    "user": "id"
+  },
+  "getCart": {
+    "_id": "id",
+    "createdAt": "date",
+    "items": [
+      {
+        "_id": "id",
+        "product": {
+          "_id": "id",
+          "brand": {
+            "_id": "id",
+            "name": "string"
+          },
+          "category": {
+            "_id": "id",
+            "name": "string"
+          },
+          "images": [],
+          "name": "string",
+          "price": "number",
+          "stock": "number"
+        },
+        "quantity": "number"
+      }
+    ],
+    "itemsCount": "number",
+    "subtotal": "number",
+    "updatedAt": "date",
+    "user": "id"
+  },
+  "addToGuestCart": {
+    "items": [
+      {
+        "_id": "id",
+        "product": {
+          "_id": "id",
+          "brand": {
+            "_id": "id",
+            "name": "string"
+          },
+          "category": {
+            "_id": "id",
+            "name": "string"
+          },
+          "images": [],
+          "name": "string",
+          "price": "number",
+          "stock": "number"
+        },
+        "quantity": "number"
+      }
+    ],
+    "itemsCount": "number",
+    "subtotal": "number"
+  },
+  "createCheckoutSession": {
+    "sessionId": "string",
+    "url": "string"
+  },
+  "webhook": {
+    "received": "boolean"
+  },
+  "getMyOrders": [
+    {
+      "_id": "id",
+      "createdAt": "date",
+      "items": [
+        {
+          "_id": "id",
+          "image": "string",
+          "name": "string",
+          "price": "number",
+          "product": "id",
+          "quantity": "number"
+        }
+      ],
+      "paidAt": "date",
+      "paymentMethod": "string",
+      "paymentStatus": "string",
+      "shipping": "number",
+      "shippingAddress": {
+        "address": "string",
+        "city": "string",
+        "country": "string",
+        "fullName": "string",
+        "postalCode": "string"
+      },
+      "status": "string",
+      "stripeSessionId": "string",
+      "subtotal": "number",
+      "tax": "number",
+      "total": "number",
+      "updatedAt": "date",
+      "user": "id"
+    }
+  ],
+  "getMyOrderById": {
+    "_id": "id",
+    "createdAt": "date",
+    "items": [
+      {
+        "_id": "id",
+        "image": "string",
+        "name": "string",
+        "price": "number",
+        "product": "id",
+        "quantity": "number"
+      }
+    ],
+    "paidAt": "date",
+    "paymentMethod": "string",
+    "paymentStatus": "string",
+    "shipping": "number",
+    "shippingAddress": {
+      "address": "string",
+      "city": "string",
+      "country": "string",
+      "fullName": "string",
+      "postalCode": "string"
+    },
+    "status": "string",
+    "stripeSessionId": "string",
+    "subtotal": "number",
+    "tax": "number",
+    "total": "number",
+    "updatedAt": "date",
+    "user": "id"
+  },
+  "getUserOrders": [
+    {
+      "_id": "id",
+      "createdAt": "date",
+      "items": [
+        {
+          "_id": "id",
+          "image": "string",
+          "name": "string",
+          "price": "number",
+          "product": {
+            "_id": "id",
+            "images": [],
+            "name": "string",
+            "price": "number"
+          },
+          "quantity": "number"
+        }
+      ],
+      "paidAt": "date",
+      "paymentMethod": "string",
+      "paymentStatus": "string",
+      "shipping": "number",
+      "shippingAddress": {
+        "address": "string",
+        "city": "string",
+        "country": "string",
+        "fullName": "string",
+        "postalCode": "string"
+      },
+      "status": "string",
+      "stripeSessionId": "string",
+      "subtotal": "number",
+      "tax": "number",
+      "total": "number",
+      "updatedAt": "date",
+      "user": "id"
+    }
+  ],
+  "getOrderById": {
+    "_id": "id",
+    "createdAt": "date",
+    "items": [
+      {
+        "_id": "id",
+        "image": "string",
+        "name": "string",
+        "price": "number",
+        "product": {
+          "_id": "id",
+          "images": [],
+          "name": "string",
+          "price": "number"
+        },
+        "quantity": "number"
+      }
+    ],
+    "paidAt": "date",
+    "paymentMethod": "string",
+    "paymentStatus": "string",
+    "shipping": "number",
+    "shippingAddress": {
+      "address": "string",
+      "city": "string",
+      "country": "string",
+      "fullName": "string",
+      "postalCode": "string"
+    },
+    "status": "string",
+    "stripeSessionId": "string",
+    "subtotal": "number",
+    "tax": "number",
+    "total": "number",
+    "updatedAt": "date",
+    "user": {
+      "_id": "id",
+      "email": "string",
+      "name": "string"
+    }
+  },
+  "updateOrderStatus": {
+    "_id": "id",
+    "createdAt": "date",
+    "items": [
+      {
+        "_id": "id",
+        "image": "string",
+        "name": "string",
+        "price": "number",
+        "product": {
+          "_id": "id",
+          "brand": "id",
+          "category": "id",
+          "createdAt": "date",
+          "description": "string",
+          "images": [],
+          "name": "string",
+          "price": "number",
+          "stock": "number",
+          "updatedAt": "date"
+        },
+        "quantity": "number"
+      }
+    ],
+    "paidAt": "date",
+    "paymentMethod": "string",
+    "paymentStatus": "string",
+    "shipping": "number",
+    "shippingAddress": {
+      "address": "string",
+      "city": "string",
+      "country": "string",
+      "fullName": "string",
+      "postalCode": "string"
+    },
+    "status": "string",
+    "stripeSessionId": "string",
+    "subtotal": "number",
+    "tax": "number",
+    "total": "number",
+    "updatedAt": "date",
+    "user": "id"
+  },
+  "getAllOrders": {
+    "orders": [
+      {
+        "_id": "id",
+        "createdAt": "date",
+        "itemsCount": "number",
+        "paymentStatus": "string",
+        "status": "string",
+        "total": "number",
+        "user": {
+          "_id": "id",
+          "email": "string",
+          "name": "string"
+        }
+      }
+    ],
+    "pagination": {
+      "currentPage": "number",
+      "hasNext": "boolean",
+      "hasPrev": "boolean",
+      "totalItems": "number",
+      "totalPages": "number"
+    }
+  },
+  "adminUpdateOrderDetails": {
+    "_id": "id",
+    "createdAt": "date",
+    "items": [
+      {
+        "_id": "id",
+        "image": "string",
+        "name": "string",
+        "price": "number",
+        "product": {
+          "_id": "id",
+          "images": [],
+          "name": "string",
+          "price": "number"
+        },
+        "quantity": "number"
+      }
+    ],
+    "paidAt": "date",
+    "paymentMethod": "string",
+    "paymentStatus": "string",
+    "shipping": "number",
+    "shippingAddress": {
+      "address": "string",
+      "city": "string",
+      "country": "string",
+      "fullName": "string",
+      "postalCode": "string"
+    },
+    "status": "string",
+    "stripeSessionId": "string",
+    "subtotal": "number",
+    "tax": "number",
+    "total": "number",
+    "updatedAt": "date",
+    "user": {
+      "_id": "id",
+      "email": "string",
+      "name": "string"
+    }
+  },
+  "getAllCarts": {
+    "carts": [
+      {
+        "_id": "id",
+        "itemsCount": "number",
+        "subtotal": "number",
+        "updatedAt": "date",
+        "user": {
+          "_id": "id",
+          "email": "string",
+          "name": "string"
+        }
+      }
+    ],
+    "pagination": {
+      "currentPage": "number",
+      "hasNext": "boolean",
+      "hasPrev": "boolean",
+      "totalItems": "number",
+      "totalPages": "number"
+    }
+  },
+  "getCartByUserId": {
+    "_id": "id",
+    "createdAt": "date",
+    "items": [
+      {
+        "_id": "id",
+        "product": {
+          "_id": "id",
+          "brand": {
+            "_id": "id",
+            "name": "string"
+          },
+          "category": {
+            "_id": "id",
+            "name": "string"
+          },
+          "images": [],
+          "name": "string",
+          "price": "number",
+          "stock": "number"
+        },
+        "quantity": "number"
+      }
+    ],
+    "itemsCount": "number",
+    "subtotal": "number",
+    "updatedAt": "date",
+    "user": {
+      "_id": "id",
+      "email": "string",
+      "name": "string"
+    }
+  },
+  "getAllUsers": {
+    "pagination": {
+      "currentPage": "number",
+      "hasNext": "boolean",
+      "hasPrev": "boolean",
+      "totalItems": "number",
+      "totalPages": "number"
+    },
+    "users": [
+      {
+        "createdAt": "date",
+        "email": "string",
+        "id": "id",
+        "isVerified": "boolean",
+        "name": "string",
+        "role": "string"
+      }
+    ]
+  },
+  "dashboard": {
+    "ordersByStatus": {
+      "cancelled": "number",
+      "delivered": "number",
+      "pending": "number",
+      "processing": "number",
+      "shipped": "number"
+    },
+    "revenueSeries": [
+      {
+        "date": "string",
+        "revenue": "number"
+      }
+    ],
+    "totals": {
+      "orders": "number",
+      "products": "number",
+      "revenue": "number",
+      "users": "number"
+    },
+    "trends": {
+      "orders": {
+        "changePct": "null",
+        "current": "number",
+        "previous": "number"
+      },
+      "revenue": {
+        "changePct": "null",
+        "current": "number",
+        "previous": "number"
+      },
+      "users": {
+        "changePct": "null",
+        "current": "number",
+        "previous": "number"
+      }
+    }
+  },
+  "updateUserProfile": {
+    "email": "string",
+    "id": "id",
+    "name": "string"
+  },
+  "createAvatarUpload": {
+    "name": "string",
+    "size": "number",
+    "uploadId": "id"
+  },
+  "deleteCategory": {
+    "_id": "id",
+    "createdAt": "date",
+    "name": "string",
+    "updatedAt": "date"
+  }
+}

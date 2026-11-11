@@ -2,8 +2,10 @@
 // never the IP, and on in every environment. Created on first use, so every entry point gets
 // them, including Vercel's (follow-ups §14). Tests swap in in-memory limiters.
 
-import mongoose from 'mongoose';
-import { RateLimiterMongo, RateLimiterRes, type RateLimiterAbstract } from 'rate-limiter-flexible';
+import { getTableName } from 'drizzle-orm';
+import { RateLimiterPostgres, RateLimiterRes, type RateLimiterAbstract } from 'rate-limiter-flexible';
+import { getPool } from '../db/client.js';
+import { rateLimits } from '../db/schema/index.js';
 import logger from '../utils/logger.js';
 
 export const AGENT_LIMITS = {
@@ -28,25 +30,27 @@ let limiters: AgentLimiters | null = null;
 
 export function getAgentLimiters(): AgentLimiters {
   if (!limiters) {
-    const mongo = (budget: AgentBudget) => new RateLimiterMongo({ storeClient: mongoose.connection, ...AGENT_LIMITS[budget] });
+    const postgres = (budget: AgentBudget) =>
+      // The counters' table comes from the migrations (spec 023), shared by every limiter.
+      new RateLimiterPostgres({ storeClient: getPool(), storeType: 'pool', tableName: getTableName(rateLimits), tableCreated: true, ...AGENT_LIMITS[budget] });
     limiters = {
-      turnsBurst: mongo('turnsBurst'),
-      turnsDaily: mongo('turnsDaily'),
-      writes: mongo('writes'),
-      support: mongo('support'),
-      escalations: mongo('escalations'),
-      feedback: mongo('feedback'),
+      turnsBurst: postgres('turnsBurst'),
+      turnsDaily: postgres('turnsDaily'),
+      writes: postgres('writes'),
+      support: postgres('support'),
+      escalations: postgres('escalations'),
+      feedback: postgres('feedback'),
     };
   }
   return limiters;
 }
 
-/** For tests: in-memory limiters, or null to go back to the MongoDB ones. */
+/** For tests: in-memory limiters, or null to go back to the Postgres ones. */
 export function setAgentLimiters(replacement: AgentLimiters | null): void {
   limiters = replacement;
 }
 
-/** The limit store itself failed (e.g. MongoDB down). Callers refuse rather than let it through. */
+/** The limit store itself failed (e.g. the database down). Callers refuse rather than let it through. */
 export class LimitStoreError extends Error {
   constructor(cause: unknown) {
     super(`Agent limit store failed: ${cause instanceof Error ? cause.message : String(cause)}`);

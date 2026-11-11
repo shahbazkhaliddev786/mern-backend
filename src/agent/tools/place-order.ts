@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { getCart } from '../../services/cart.service.js';
 import { createOrReuseCheckoutSession, getMyOrders } from '../../services/order.service.js';
 import { computeOrderPricing } from '../../services/pricing.service.js';
-import type { IShippingAddress } from '../../models/order.model.js';
+import type { ShippingAddress as OrderAddress } from '../../db/schema/index.js';
 import logger from '../../utils/logger.js';
 import { shippingSchema, type ShippingAddress } from '../../validations/shipping.schema.js';
 import { safely, toolError, toolResult } from './helpers.js';
@@ -32,8 +32,8 @@ async function resolveAddress(ctx: ToolContext, args: Args): Promise<ShippingAdd
 }
 
 // The order model leaves unset optional fields out rather than holding undefined.
-const toShippingAddress = (a: ShippingAddress): IShippingAddress =>
-  Object.fromEntries(Object.entries(a).filter(([, value]) => value !== undefined && value !== '')) as unknown as IShippingAddress;
+const toShippingAddress = (a: ShippingAddress): OrderAddress =>
+  Object.fromEntries(Object.entries(a).filter(([, value]) => value !== undefined && value !== '')) as unknown as OrderAddress;
 
 export const formatAddress = (a: ShippingAddress) =>
   [a.fullName, a.address, a.apartment, a.city, [a.state, a.postalCode].filter(Boolean).join(' '), a.country].filter(Boolean).join(', ');

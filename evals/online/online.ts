@@ -2,8 +2,11 @@
 // prints (no customer text), and the review queue of flagged turns. The judge itself is passed
 // in, so this runs with a stub in tests and with Haiku 5.5 in `npm run eval:online`.
 
-import mongoose, { type Connection } from 'mongoose';
-import { expiresAfter, feedbackRecords, RETENTION_DAYS, turnSamples, type Review, type TurnSample, type TurnSnapshot } from '../../src/agent/online-evals.js';
+import { and, asc, count, eq, gt, gte, isNull, sql } from 'drizzle-orm';
+import { getDb, type Executor } from '../../src/db/client.js';
+import { agentFeedback, agentTurnSamples } from '../../src/db/schema/index.js';
+import { expiresAfter, RETENTION_DAYS, type Review, type TurnSnapshot } from '../../src/agent/online-evals.js';
+import { isId } from '../../src/utils/ids.js';
 
 /** A sample is flagged when any score is below its threshold (evals.md §2; tool fit, spec 021). */
 export const ONLINE_THRESHOLDS = { faithfulness: 0.9, relevancy: 0.8, toolFit: 0.7 } as const;
@@ -29,14 +32,23 @@ export interface BatchSummary {
 
 const startOfUtcDay = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 
-export async function judgeBatch({ judge, cap, now = new Date(), connection = mongoose.connection }: { judge: Judge; cap: number; now?: Date; connection?: Connection }): Promise<BatchSummary> {
-  const samples = turnSamples(connection);
-  const judgedToday = await samples.countDocuments({ judgedAt: { $gte: startOfUtcDay(now) } });
-  const pending = await samples
-    .find({ judgedAt: { $exists: false } })
-    .sort({ createdAt: 1 })
-    .limit(Math.max(0, cap - judgedToday))
-    .toArray();
+// Expired records are left out of every read, as the TTL indexes removed them, whether or not the
+// cleanup has run yet (spec 023).
+const liveSample = (now: Date) => gt(agentTurnSamples.expiresAt, now);
+const liveVote = (now: Date) => gt(agentFeedback.expiresAt, now);
+
+export async function judgeBatch({ judge, cap, now = new Date(), db = getDb() }: { judge: Judge; cap: number; now?: Date; db?: Executor }): Promise<BatchSummary> {
+  const unjudged = and(isNull(agentTurnSamples.judgedAt), liveSample(now));
+  const [today] = await db
+    .select({ n: count() })
+    .from(agentTurnSamples)
+    .where(gte(agentTurnSamples.judgedAt, startOfUtcDay(now)));
+  const pending = await db
+    .select()
+    .from(agentTurnSamples)
+    .where(unjudged)
+    .orderBy(asc(agentTurnSamples.createdAt))
+    .limit(Math.max(0, cap - (today?.n ?? 0)));
 
   const scored: Partial<Record<OnlineMetric, number>>[] = [];
   let errors = 0;
@@ -55,11 +67,11 @@ export async function judgeBatch({ judge, cap, now = new Date(), connection = mo
     for (const metric of flags) flaggedBy[metric] = (flaggedBy[metric] ?? 0) + 1;
     if (flags.length) flagged += 1;
     scored.push(scores);
-    await samples.updateOne(
-      { _id: sample._id },
+    await db
+      .update(agentTurnSamples)
       // A flagged turn is kept for review, up to 90 days from when it happened (spec 021).
-      { $set: { scores, flags, judgedAt: now, ...(flags.length ? { expiresAt: expiresAfter(RETENTION_DAYS.flagged, sample.createdAt) } : {}) } },
-    );
+      .set({ scores, flags, judgedAt: now, ...(flags.length ? { expiresAt: expiresAfter(RETENTION_DAYS.flagged, sample.createdAt) } : {}) })
+      .where(eq(agentTurnSamples.id, sample.id));
   }
 
   const means: Partial<Record<OnlineMetric, number>> = {};
@@ -68,23 +80,28 @@ export async function judgeBatch({ judge, cap, now = new Date(), connection = mo
     if (values.length) means[metric] = values.reduce((sum, v) => sum + v, 0) / values.length;
   }
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const votes = await feedbackRecords(connection)
-    .aggregate<{ _id: string; n: number }>([{ $match: { updatedAt: { $gte: weekAgo } } }, { $group: { _id: '$rating', n: { $sum: 1 } } }])
-    .toArray();
-  const outcomes = await samples
-    .aggregate<{ _id: string; n: number }>([{ $match: { createdAt: { $gte: weekAgo } } }, { $group: { _id: '$outcome', n: { $sum: 1 } } }])
-    .toArray();
+  const votes = await db
+    .select({ rating: agentFeedback.rating, n: count() })
+    .from(agentFeedback)
+    .where(and(gte(agentFeedback.updatedAt, weekAgo), liveVote(now)))
+    .groupBy(agentFeedback.rating);
+  const outcomes = await db
+    .select({ outcome: agentTurnSamples.outcome, n: count() })
+    .from(agentTurnSamples)
+    .where(and(gte(agentTurnSamples.createdAt, weekAgo), liveSample(now)))
+    .groupBy(agentTurnSamples.outcome);
+  const [waiting] = await db.select({ n: count() }).from(agentTurnSamples).where(unjudged);
   return {
     date: now.toISOString().slice(0, 10),
     cap,
     judged: scored.length,
     errors,
     flagged,
-    waiting: await samples.countDocuments({ judgedAt: { $exists: false } }),
+    waiting: waiting?.n ?? 0,
     means,
     flaggedBy,
-    thumbs: { up: votes.find((v) => v._id === 'up')?.n ?? 0, down: votes.find((v) => v._id === 'down')?.n ?? 0 },
-    outcomes: Object.fromEntries(outcomes.sort((a, b) => b.n - a.n).map((o) => [o._id, o.n])),
+    thumbs: { up: votes.find((v) => v.rating === 'up')?.n ?? 0, down: votes.find((v) => v.rating === 'down')?.n ?? 0 },
+    outcomes: Object.fromEntries(outcomes.sort((a, b) => b.n - a.n).map((o) => [o.outcome, o.n])),
   };
 }
 
@@ -117,21 +134,23 @@ export interface Flagged {
   snapshot?: TurnSnapshot;
 }
 
-export async function listFlagged(connection: Connection = mongoose.connection): Promise<Flagged[]> {
-  const samples = await turnSamples(connection)
-    .find({ 'flags.0': { $exists: true }, review: { $exists: false } })
-    .toArray();
-  const votes = await feedbackRecords(connection)
-    .find({ rating: 'down', review: { $exists: false } })
-    .toArray();
-  const fromSamples = samples.map((s: TurnSample & { _id: unknown }) => ({
-    id: `s:${String(s._id)}`,
+export async function listFlagged(db: Executor = getDb(), now = new Date()): Promise<Flagged[]> {
+  const samples = await db
+    .select()
+    .from(agentTurnSamples)
+    .where(and(sql`cardinality(${agentTurnSamples.flags}) > 0`, isNull(agentTurnSamples.review), liveSample(now)));
+  const votes = await db
+    .select()
+    .from(agentFeedback)
+    .where(and(eq(agentFeedback.rating, 'down'), isNull(agentFeedback.review), liveVote(now)));
+  const fromSamples = samples.map((s) => ({
+    id: `s:${s.id}`,
     at: s.createdAt,
     why: `judge: ${(s.flags ?? []).map((f) => `${f} ${s.scores?.[f]?.toFixed(2) ?? '?'}`).join(', ')}`,
     snapshot: s.snapshot,
   }));
   const fromVotes = votes.map((v) => ({
-    id: `f:${String(v._id)}`,
+    id: `f:${v.id}`,
     at: v.updatedAt,
     why: `thumbs down${v.reason ? ` (${v.reason})` : ''}${v.comment ? `: "${v.comment}"` : ''}`,
     ...(v.snapshot ? { snapshot: v.snapshot } : {}),
@@ -140,16 +159,18 @@ export async function listFlagged(connection: Connection = mongoose.connection):
 }
 
 /** Closes a flagged turn. It then expires like an unflagged one (30 days from when it happened). */
-export async function resolveFlagged(id: string, status: Review['status'], note: string | undefined, connection: Connection = mongoose.connection): Promise<boolean> {
+export async function resolveFlagged(id: string, status: Review['status'], note: string | undefined, db: Executor = getDb()): Promise<boolean> {
   const [kind, raw] = id.split(':');
-  if (!raw || !mongoose.isValidObjectId(raw) || (kind !== 's' && kind !== 'f')) return false;
-  const _id = new mongoose.Types.ObjectId(raw);
-  const review: Review = { status, at: new Date(), ...(note ? { note } : {}) };
-  const collection = kind === 's' ? turnSamples(connection) : feedbackRecords(connection);
-  const record = await (collection as ReturnType<typeof turnSamples>).findOne({ _id } as never);
-  if (!record) return false;
-  await (collection as ReturnType<typeof turnSamples>).updateOne({ _id } as never, { $set: { review, expiresAt: expiresAfter(RETENTION_DAYS.unflagged, record.createdAt) } });
-  return true;
+  if (!raw || !isId(raw) || (kind !== 's' && kind !== 'f')) return false;
+  const review: Review = { status, at: new Date().toISOString(), ...(note ? { note } : {}) };
+  const table = kind === 's' ? agentTurnSamples : agentFeedback;
+  const done = await db
+    .update(table)
+    // In seconds, as expiresAfter counts: a day interval would follow the session's daylight saving.
+    .set({ review, expiresAt: sql`${table.createdAt} + make_interval(secs => ${RETENTION_DAYS.unflagged * 86_400})` })
+    .where(eq(table.id, raw))
+    .returning({ id: table.id });
+  return done.length > 0;
 }
 
 export function renderFlagged(items: Flagged[]): string {

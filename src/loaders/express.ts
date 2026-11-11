@@ -3,14 +3,12 @@ import express from 'express';
 import type { Express } from 'express';
 import helmetPkg from 'helmet';
 import cookieParser from 'cookie-parser';
-import session from 'express-session';
-import MongoStorePkg from 'connect-mongo';
-import mongoose from 'mongoose';
 import { handleStripeWebhook } from '../services/order.service.js';
+import { clientErrorMessage, describeError } from '../db/client.js';
 import logger from '../utils/logger.js';
+import { sessionMiddleware } from './session.js';
 
 const helmet = helmetPkg as any;
-const MongoStore = MongoStorePkg as any;
 
 export default async function expressLoader(app: Express) {
   app.set('trust proxy', 1);
@@ -62,8 +60,8 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
         await handleStripeWebhook(rawBody, sig);
         res.json({ received: true });
       } catch (err: any) {
-        logger.error('Webhook error', { error: err.message });
-        res.status(400).send(`Webhook Error: ${err.message}`);
+        logger.error('Webhook error', { error: describeError(err) });
+        res.status(400).send(`Webhook Error: ${clientErrorMessage(err, 'could not process the event')}`);
       }
     }
   );
@@ -74,22 +72,7 @@ orderRouter.get('/:orderId', authMiddleware, getOrder);
   app.use(express.urlencoded({ extended: true, limit: '15kb' }));
   app.use(cookieParser());
   // === SESSION MIDDLEWARE FOR GUEST CART ===
-  app.use(
-    session({
-      secret: process.env.SESSION_SECRET || 'fallback-secret-change-in-production',
-      resave: false,
-      saveUninitialized: true,
-      store: MongoStore.create({
-        client: mongoose.connection.getClient(),
-      }),
-      cookie: {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      },
-    })
-  );
+  app.use(sessionMiddleware());
 
 }
 

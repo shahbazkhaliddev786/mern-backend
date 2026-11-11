@@ -4,6 +4,6 @@ import { param } from 'express-validator';
 // cart tools share; only the :productId route param is checked here.
 export const productIdParamValidation = [
   param('productId')
-    .isMongoId()
+    .isUUID()
     .withMessage('Valid product ID is required'),
 ];

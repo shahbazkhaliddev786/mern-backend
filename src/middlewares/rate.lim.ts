@@ -44,7 +44,7 @@ const rateLimiterMiddleware: (req: Request, res: Response, next: NextFunction) =
       return apiResponse(res, 429, 'error', 'Too many requests. Please try again later.');
     }
 
-    // Unexpected error (e.g., MongoDB down)
+    // Unexpected error (e.g., the database down)
     logger.error('Rate limiter internal error', { error: rlRejected, ip: key });
     return apiResponse(res, 500, 'error', 'Internal rate limiting error');
   }

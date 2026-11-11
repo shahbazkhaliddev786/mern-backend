@@ -25,11 +25,11 @@ export const createProductValidation = [
     .withMessage('Stock must be a non-negative integer'),
 
   body('category')
-    .isMongoId()
+    .isUUID()
     .withMessage('Valid category ID is required'),
 
   body('brand')
-    .isMongoId()
+    .isUUID()
     .withMessage('Valid brand ID is required'),
 ];
 
@@ -63,11 +63,11 @@ export const updateProductValidation = [
 
   body('category')
     .optional()
-    .isMongoId()
+    .isUUID()
     .withMessage('Valid category ID is required'),
 
   body('brand')
     .optional()
-    .isMongoId()
+    .isUUID()
     .withMessage('Valid brand ID is required'),
 ];

@@ -1,6 +1,6 @@
-// Request tracing (spec 017). Imported first by both entry points, so the HTTP and MongoDB
+// Request tracing (spec 017). Imported first by both entry points, so the HTTP and Postgres
 // instrumentations patch those modules before anything loads them. Keep this file free of
-// app imports beyond config: the logger's MongoDB transport would load the driver too early.
+// app imports beyond config, so nothing it imports loads them first.
 //
 // On when LangSmith tracing is on or an OTLP endpoint is set; otherwise nothing is registered.
 // Spans come from the instrumentations and from the agent's own code (graph.ts, chat.service.ts).
@@ -11,7 +11,7 @@ import { context, propagation, trace } from '@opentelemetry/api';
 import { NodeSDK, resources, tracing as sdkTracing } from '@opentelemetry/sdk-node';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { MongoDBInstrumentation } from '@opentelemetry/instrumentation-mongodb';
+import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
 import { LangSmithOTLPTraceExporter } from 'langsmith/experimental/otel/exporter';
 import config from './config/config.js';
 
@@ -28,8 +28,9 @@ export function startTracing(exporters: sdkTracing.SpanExporter[], { immediate =
   sdk = new NodeSDK({
     resource: resources.resourceFromAttributes({ 'service.name': 'aljo-store-backend', 'deployment.environment.name': config.ENV }),
     spanProcessors: processors,
-    // No statement capture: MongoDB spans name the operation and collection, never query values.
-    instrumentations: [new HttpInstrumentation(), new MongoDBInstrumentation({ enhancedDatabaseReporting: false })],
+    // No query values: Postgres spans keep the SQL, whose values travel separately as parameters
+    // and aren't recorded.
+    instrumentations: [new HttpInstrumentation(), new PgInstrumentation({ enhancedDatabaseReporting: false })],
   });
   // OpenTelemetry's registrations are process-wide and can't be replaced once set. Clearing them
   // first makes this the one in force (at start-up there's nothing to clear; in tests, a previous
@@ -96,7 +97,7 @@ export async function flushTraces(timeoutMs = 2000): Promise<void> {
   }
 }
 
-// Loaded on use, long after start-up: importing the logger here would load the MongoDB driver early.
+// Loaded on use, long after start-up, so this file keeps no app imports beyond config.
 async function logWarning(event: string, meta: Record<string, unknown>): Promise<void> {
   const { default: logger } = await import('./utils/logger.js');
   logger.warn(event, meta);

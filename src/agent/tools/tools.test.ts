@@ -63,26 +63,21 @@ vi.mock('../../services/upload.service.js', () => {
 });
 vi.mock('../rag/knowledge.js', () => ({ askKnowledge: services.askKnowledge }));
 vi.mock('../../utils/logger.js', () => ({ default: { info: services.logInfo, error: vi.fn(), warn: vi.fn() } }));
-// Name lookups: find({ name: { $in: [regex] } }).select().lean() against an in-memory list.
-const { nameModel } = vi.hoisted(() => ({
-  nameModel: (list: () => { _id: string; name: string }[]) => ({
-    find: (filter: { name: { $in: RegExp[] } }) => ({
-      select: () => ({ lean: async () => list().filter((doc) => filter.name.$in.some((re) => re.test(doc.name))) }),
-    }),
-  }),
+// Name lookups (case-insensitive, exact) against an in-memory list.
+const { byName } = vi.hoisted(() => ({
+  byName: (list: () => { _id: string; name: string }[]) => async (names: string[]) =>
+    list().filter((row) => names.some((name) => name.toLowerCase() === row.name.toLowerCase())),
 }));
-vi.mock('../../models/index.js', () => ({
-  Brand: nameModel(() => services.brandNames),
-  Category: nameModel(() => services.categoryNames),
-}));
+vi.mock('../../services/brand.service.js', () => ({ findBrandsByName: byName(() => services.brandNames) }));
+vi.mock('../../services/category.service.js', () => ({ findCategoriesByName: byName(() => services.categoryNames) }));
 
 import { AGENT_TOOL_NAMES, buildToolsForRequest, summarizeConfirmation } from './index';
 import { setAgentLimiters } from '../limits';
 import { memoryLimiters } from '../test-utils';
 import { untrusted } from './helpers';
 
-const A = { userId: '64b000000000000000000a01' };
-const B = { userId: '64b000000000000000000b02' };
+const A = { userId: '0b3c6a52-6f1e-4c1a-9f57-2d4a10000a01' };
+const B = { userId: '0b3c6a52-6f1e-4c1a-9f57-2d4a10000b02' };
 const toolNamed = (ctx: { userId: string }, name: string) => {
   const found = buildToolsForRequest(ctx).find((t) => t.name === name);
   if (!found) throw new Error(`no tool ${name}`);
@@ -92,8 +87,8 @@ const call = async (ctx: { userId: string }, name: string, args: Record<string, 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- parsed tool JSON is inspected freely in assertions
   JSON.parse(String(await toolNamed(ctx, name).invoke(args))) as Record<string, any>;
 
-const PRODUCT_ID = '64b0000000000000000000c1';
-const ORDER_ID = '64b0000000000000000000d1';
+const PRODUCT_ID = '0b3c6a52-6f1e-4c1a-9f57-2d4a100000c1';
+const ORDER_ID = '0b3c6a52-6f1e-4c1a-9f57-2d4a100000d1';
 const emptyPage = { products: [], pagination: { currentPage: 1, totalPages: 0, totalItems: 0 } };
 
 beforeEach(() => {
@@ -213,7 +208,7 @@ describe('per-user write limits (spec 014)', () => {
   });
 
   it('refuses, without running, when the limit store fails', async () => {
-    const broken = { consume: async () => Promise.reject(new Error('mongo down')) };
+    const broken = { consume: async () => Promise.reject(new Error('database down')) };
     setAgentLimiters({ ...memoryLimiters(), writes: broken });
     const result = await call(A, 'add_to_cart', { product_id: PRODUCT_ID });
     expect(result.error).toBe("I can't make changes right now. Please try again in a moment.");
@@ -622,7 +617,7 @@ describe('submit_support_request', () => {
 });
 
 describe('upload_avatar', () => {
-  const UPLOAD_ID = '64b0000000000000000000e1';
+  const UPLOAD_ID = '0b3c6a52-6f1e-4c1a-9f57-2d4a100000e1';
 
   it('applies the closure\'s upload and returns no picture URL to the model', async () => {
     services.applyAvatarUpload.mockResolvedValue({ id: A.userId, name: 'Jane', email: 'j@example.com', profile: 'https://res.cloudinary.com/x.png' });

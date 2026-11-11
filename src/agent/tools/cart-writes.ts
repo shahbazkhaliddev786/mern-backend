@@ -6,10 +6,10 @@ import { z } from 'zod';
 import { addToCart, clearCart, getCart, updateCartItem } from '../../services/cart.service.js';
 import { computeOrderPricing } from '../../services/pricing.service.js';
 import { MAX_CART_ITEM_QUANTITY } from '../../validations/cart.schema.js';
-import { cartSummary, OBJECT_ID_PATTERN, safely, toolError, toolResult } from './helpers.js';
+import { cartSummary, ID_PATTERN, safely, toolError, toolResult } from './helpers.js';
 import { CONFIRMED_WRITE_TOOL_METADATA, WRITE_TOOL_METADATA, type ToolContext } from './types.js';
 
-const productId = z.string().regex(OBJECT_ID_PATTERN, 'Not a product id').describe('The product id from search results or product details');
+const productId = z.string().regex(ID_PATTERN, 'Not a product id').describe('The product id from search results or product details');
 
 // The cart service's known failures, as sentences the customer can act on.
 const CART_ERRORS: [RegExp, string][] = [

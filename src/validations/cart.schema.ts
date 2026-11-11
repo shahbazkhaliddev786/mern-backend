@@ -3,10 +3,11 @@
 // (architecture.md §4). Stock is checked separately, in the cart services.
 
 import { z } from 'zod';
+import { ID_PATTERN } from '../utils/ids.js';
 
 export const MAX_CART_ITEM_QUANTITY = 99;
 
-const productId = z.string().regex(/^[a-f\d]{24}$/i, 'Valid product ID is required');
+const productId = z.string().regex(ID_PATTERN, 'Valid product ID is required');
 
 const quantity = z.coerce
   .number()

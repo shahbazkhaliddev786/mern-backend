@@ -1,8 +1,8 @@
 // The judged agent suite (spec 020, evals.md §6 and §8): every golden through the real router,
-// tools and MongoDB with real models, for each setup; deterministic checks plus an Opus judge
+// tools and database with real models, for each setup; deterministic checks plus an Opus judge
 // (Sonnet cross-checks turns Opus wrote); then the report and the cascade-vs-Opus verdict.
-// Needs ANTHROPIC_API_KEY and MONGO_URL; skipped without them.
-//   MONGO_URL=… npm run eval:agent
+// Needs ANTHROPIC_API_KEY and TEST_DATABASE_URL; skipped without them.
+//   TEST_DATABASE_URL=… npm run eval:agent
 // Options (cheap by default, for a small API budget): EVAL_SETUP=cascade|opus-only|both,
 // EVAL_CASES=smoke|all|<ids>, EVAL_JUDGE=sonnet|opus, EVAL_TOKEN_BUDGET (per setup).
 
@@ -26,8 +26,8 @@ vi.mock('../../src/agent/alerts.js', async () => (await import('./mocks')).alert
 vi.mock('../../src/services/order.service.js', async (importOriginal) => (await import('./mocks')).orderService(await importOriginal()));
 vi.mock('../../src/services/product.service.js', async (importOriginal) => (await import('./mocks')).productService(await importOriginal()));
 
-const MONGO_URL = process.env.MONGO_URL;
-const READY = Boolean(config.ANTHROPIC_API_KEY && MONGO_URL);
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL;
+const READY = Boolean(config.ANTHROPIC_API_KEY && TEST_DATABASE_URL);
 // Per setup, agent plus judge. Cached tokens count in full, so the cap overstates the cost.
 const BUDGET = Number(process.env.EVAL_TOKEN_BUDGET ?? 300_000);
 const CASES = process.env.EVAL_CASES ?? 'smoke';
@@ -73,7 +73,7 @@ describe.skipIf(!READY)('agent suite: judged, both setups', () => {
 
   beforeAll(async () => {
     const { startHarness } = await import('../safety/harness');
-    h = await startHarness(MONGO_URL as string, { dbName: 'agent_eval_judged', catalog: loadCatalog() });
+    h = await startHarness({ dbName: 'agent_eval_judged', catalog: loadCatalog() });
     goldens = selectCases(loadGoldens(), CASES).map((g) => resolveGolden(g, h.ids));
   }, 120_000);
 

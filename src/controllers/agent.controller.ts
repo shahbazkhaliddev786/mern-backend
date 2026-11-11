@@ -12,6 +12,7 @@ import { formatSse } from '../agent/stream.js';
 import { createAvatarUpload, findOwnedUpload, formatSize } from '../services/upload.service.js';
 import { flushTraces } from '../tracing.js';
 import { apiResponse } from '../utils/api.response.js';
+import { ID_PATTERN } from '../utils/ids.js';
 import logger from '../utils/logger.js';
 
 // A new message, or the answer to a pending confirmation (spec 008).
@@ -20,7 +21,7 @@ export const chatRequestSchema = z.union([
     message: z.string().trim().min(1).max(2000),
     threadId: z.uuid().optional(),
     // An image attached in the chat (spec 012), from POST /agent/uploads/avatar.
-    uploadId: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
+    uploadId: z.string().regex(ID_PATTERN).optional(),
   }),
   z.object({
     threadId: z.uuid(),
@@ -68,7 +69,7 @@ const limitRequests =
       res.setHeader('Retry-After', String(Math.ceil(result.msBeforeNext / 1000)));
       return apiResponse(res, 429, 'error', tooMany(waitPhrase(result.msBeforeNext)));
     } catch (error) {
-      // Without the limit store the request isn't let through (the chat needs MongoDB anyway).
+      // Without the limit store the request isn't let through (the chat needs the database anyway).
       logger.error('AGENT_LIMIT_ERROR', { userId, error: error instanceof LimitStoreError ? error.message : String(error) });
       return apiResponse(res, 503, 'error', UNAVAILABLE);
     }

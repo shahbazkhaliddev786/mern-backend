@@ -52,9 +52,9 @@ flowchart TB
 
     subgraph Data["Data Layer"]
         TS["Typesense<br/>(deferred — only if evals need it)"]
-        subgraph Mongo["MongoDB Atlas (one DB)"]
+        subgraph PG["PostgreSQL on Neon (one DB, spec 023)"]
             PROD["products"]
-            PCK["pendingcheckouts<br/>(24h TTL)"]
+            PCK["pending_checkouts<br/>(expire after 24h)"]
             ORDERS["orders<br/>(created only after payment)"]
             PROFILES["users (profiles)"]
             CART["carts"]
@@ -76,7 +76,7 @@ flowchart TB
     INBOX["Human support inbox<br/>(POST /api/v1/support → Make.com)"]
 
     subgraph Ops["Observability & Evals"]
-        OTEL["OpenTelemetry — backbone<br/>agent spans + HTTP/MongoDB instrumentation<br/>gen_ai.* + app/DB spans, one trace ID"]
+        OTEL["OpenTelemetry — backbone<br/>agent spans + HTTP/Postgres instrumentation<br/>gen_ai.* + app/DB spans, one trace ID"]
         LS["LangSmith<br/>LLM-native trajectories + online evals"]
         BACKEND["General backend (OTLP)<br/>Grafana/Tempo · Datadog"]
         DE["DeepEval-TS + Vitest<br/>CI eval gate"]
@@ -97,7 +97,7 @@ flowchart TB
     TOOLS --> ReadTools
     TOOLS --> AutoWrite
     TOOLS --> WriteTools
-    SEARCH -->|v1: Mongo query| PROD
+    SEARCH -->|v1: SQL query| PROD
     SEARCH -.later.-> TS
     PDET --> PROD
     RAG --> RAGPipe
@@ -136,7 +136,7 @@ flowchart LR
     CHUNK["Structural chunking<br/>1 question heading = 1 chunk<br/>skip TODO(owner) chunks"]
     CTX["Contextual Retrieval<br/>prepend 1-line context per chunk (Claude)"]
     EMB["Embed — Voyage voyage-3.5"]
-    IDX["MongoDB Atlas<br/>vector index + BM25 (Atlas Search)"]
+    IDX["Postgres knowledge_chunks<br/>pgvector (HNSW) + full text (tsvector)"]
     DOCS --> CHUNK --> CTX --> EMB --> IDX
 ```
 
@@ -149,12 +149,12 @@ The source documents and their editing rules are in `mern-backend/knowledge/READ
 1. User message hits Express → **auth boundary** attaches `user_id` + scoped session token server-side. The agent requires login in v1 — guests get a sign-in prompt instead of the chat ([`reconciliation.md`](./reconciliation.md) Gap 16).
 2. **Agent (Sonnet 5.5)** reads **short-term memory** (checkpointer thread state) and picks a tool through native tool use. There is no separate intent router: one would add latency and a misrouting failure, so it's added only if evals show it beats self-routing ([`reconciliation.md`](./reconciliation.md) Gap 3). `ask_store_knowledge` has no separate query-rewrite step either: the agent writes the search question itself, with the whole conversation in view (spec 013). Haiku only writes the per-chunk context lines at ingestion.
 3. The system prompt and tool definitions are identical on every request; per-request facts (cart contents, the user's name) arrive as messages or tool results. This keeps the prompt cache warm and is required on these models, which reject a history whose earlier turns, system prompt or tools changed (see [`tech-stack.md`](./tech-stack.md) Layer 3).
-4. **Read tool** or **reversible cart write** (`add_to_cart`, `update_cart_item`) → auto-executes (writes are audited). **Confirm-required tool** (see §4) → `interrupt()` surfaces a summary ("3 items, $142.50, ship to Home — confirm?") and waits for explicit user yes. The pause lives only in the Mongo checkpointer, so the confirming request can land on any instance. Before resuming, the server **claims the interrupt id** with a unique insert: only one confirm can win, and a double-click or a retried request gets "already confirmed" instead of running the tool twice ([spec 002](../spec/002-m1-interrupt-resume-across-requests.md)).
-5. Tool runs with **server-side authz** (`WHERE user_id = ?`), hits MongoDB (products, carts, orders, users) or Atlas Search (store knowledge).
+4. **Read tool** or **reversible cart write** (`add_to_cart`, `update_cart_item`) → auto-executes (writes are audited). **Confirm-required tool** (see §4) → `interrupt()` surfaces a summary ("3 items, $142.50, ship to Home — confirm?") and waits for explicit user yes. The pause lives only in the Postgres checkpointer, so the confirming request can land on any instance. Before resuming, the server **claims the interrupt id** with a unique insert: only one confirm can win, and a double-click or a retried request gets "already confirmed" instead of running the tool twice ([spec 002](../spec/002-m1-interrupt-resume-across-requests.md)).
+5. Tool runs with **server-side authz** (`WHERE user_id = ?`), hits Postgres (products, carts, orders, users) or the store-knowledge search (pgvector + full text in the same database).
 6. Result returns to the agent → grounded response **streamed to React via SSE**.
 7. On confirm, `place_order` calls the same `createCheckoutSession(userId, shippingAddress)` as the `/checkout` page. It snapshots the cart into a **`PendingCheckout`** (prices and totals computed server-side; expires after 24h) and creates a **Stripe Checkout session**. The agent returns the session's link, and the user pays on Stripe's hosted page — the agent never touches card data. **No order exists yet.** Stripe's **signed webhook** (`checkout.session.completed`) then creates the `Order` as `status: 'pending'`, `paymentStatus: 'paid'`, keyed on the Stripe session id so a redelivered event can't create a second order. An abandoned checkout leaves no order behind; its `PendingCheckout` simply expires. This is payment-first, the flow the site already uses ([`reconciliation.md`](./reconciliation.md) Gap 1).
 8. **Escalation:** if the agent is stuck — loop detection (same tool + args repeated), step budget exceeded, or repeated tool errors — the turn is retried once on the **Opus 5.5 escalation node** with the same tools and the same confirmation gate. Opus can't read Sonnet's earlier reasoning blocks; the API drops them unbilled and Opus re-plans the turn from the visible history. If Opus can't resolve it either, the agent offers `submit_support_request` (human handoff).
-9. Every step emits **OpenTelemetry** spans (the agent's own, plus HTTP and MongoDB instrumentation; spec 017) correlated under one trace ID → **LangSmith** (LLM-native view) + a general OTLP backend; the whole path is gated in CI by **DeepEval**. Full detail in [`observability.md`](./observability.md).
+9. Every step emits **OpenTelemetry** spans (the agent's own, plus HTTP and Postgres instrumentation; specs 017 and 023) correlated under one trace ID → **LangSmith** (LLM-native view) + a general OTLP backend; the whole path is gated in CI by **DeepEval**. Full detail in [`observability.md`](./observability.md).
 
 ---
 
@@ -164,8 +164,8 @@ The source documents and their editing rules are in `mern-backend/knowledge/READ
 
 | Tool | Type | Confirm? | Notes |
 |---|---|---|---|
-| `search_products` | read | no | v1 wraps the existing Mongo product query (`getAllProductsService`), validated by one zod query schema shared with the REST route (which also fixes follow-ups §6); keyword + filters (price range, brands, categories, in-stock); sort `newest`, `price_asc` or `price_desc` — mirrors `/products`, which has no in-stock filter yet. Typesense, and a `relevance` sort with it, come only if evals show Mongo search isn't good enough ([`reconciliation.md`](./reconciliation.md) Gap 8) |
-| `get_product_details(productId)` | read | no | Mongo `products`: name, description, price, stock, images, category, brand; related products = same category — mirrors `/products/:id`. Description returned inside an untrusted-content block. v1 has no materials/specs, ratings, reviews or sale price ([`reconciliation.md`](./reconciliation.md) Gap 7) |
+| `search_products` | read | no | v1 wraps the existing product query (`getAllProductsService`, SQL since spec 023), validated by one zod query schema shared with the REST route (which also fixes follow-ups §6); keyword + filters (price range, brands, categories, in-stock); sort `newest`, `price_asc` or `price_desc` — mirrors `/products`, which has no in-stock filter yet. Typesense, and a `relevance` sort with it, come only if evals show the database search isn't good enough ([`reconciliation.md`](./reconciliation.md) Gap 8) |
+| `get_product_details(productId)` | read | no | `products` table: name, description, price, stock, images, category, brand; related products = same category — mirrors `/products/:id`. Description returned inside an untrusted-content block. v1 has no materials/specs, ratings, reviews or sale price ([`reconciliation.md`](./reconciliation.md) Gap 7) |
 | `ask_store_knowledge` | read | no | RAG over `mern-backend/knowledge/` (shipping, returns, payments, orders, account, contact & support, about) — see §2 |
 | `view_cart` | read | no | totals computed server-side |
 | `view_orders` | read | no | optional `status` filter (`pending`, `processing`, `shipped`, `delivered`, `cancelled`); wraps `getMyOrders(ctx.userId)` |
@@ -199,9 +199,9 @@ Before payment, a checkout is a `PendingCheckout`, not an order: there are no un
 
 | Layer | Primitive | Scope | Status | Why |
 |---|---|---|---|---|
-| **Short-term** | LangGraph **Checkpointer** (Mongo) | one conversation | **✅ shipped** | Reference resolution: "add *the blue one*", "make it *2*", "*yes* confirm". Agent is amnesiac without it. |
-| **Long-term (structured)** | Mongo collections + **tools** | across sessions | **✅ via tools** | Orders / profile / cart are authoritative data — queried with `view_orders` etc., **never** paraphrased from LLM memory. |
-| **Long-term (inferred)** | LangGraph **Store** keyed by `user_id` (Mongo) | across sessions | **🟡 phase 2** | Personalization — learned prefs ("prefers eco brands") not captured as DB fields. Bounded, with privacy + poisoning controls. |
+| **Short-term** | LangGraph **Checkpointer** (Postgres, `PostgresSaver`) | one conversation | **✅ shipped** | Reference resolution: "add *the blue one*", "make it *2*", "*yes* confirm". Agent is amnesiac without it. |
+| **Long-term (structured)** | Postgres tables + **tools** | across sessions | **✅ via tools** | Orders / profile / cart are authoritative data — queried with `view_orders` etc., **never** paraphrased from LLM memory. |
+| **Long-term (inferred)** | LangGraph **Store** keyed by `user_id` (Postgres) | across sessions | **🟡 phase 2** | Personalization — learned prefs ("prefers eco brands") not captured as DB fields. Bounded, with privacy + poisoning controls. |
 
 **Boundary rule:** authoritative data lives in the DB behind tools; only *inferred* signals go in long-term memory. Structured data ≠ memory.
 
@@ -211,21 +211,21 @@ Before payment, a checkout is a `PendingCheckout`, not an order: there are no un
 
 | Component | Choice | Why this / why not the alternative | Public corroboration |
 |---|---|---|---|
-| Orchestration | **LangGraph.js** | Single agent + tools; `interrupt()` HITL; Mongo checkpointer. Not multi-agent — no confusion at this scope. | Shopify Sidekick = "relatively simple agent: LLM + tools" |
+| Orchestration | **LangGraph.js** | Single agent + tools; `interrupt()` HITL; Postgres checkpointer. Not multi-agent — no confusion at this scope. | Shopify Sidekick = "relatively simple agent: LLM + tools" |
 | Agent model | **Claude Sonnet 5.5** (`claude-sonnet-5-5`) | Best tool-use/cost balance ($2/$10 per MTok); 1M ctx; adaptive thinking with an explicit effort level. Opus as the default = overkill cost (used only for escalation); Haiku = too weak for multi-step. M7 evals also compare a single Opus 5.5 at lower effort against this cascade. | Rufus runs on Claude Sonnet via Bedrock |
 | Knowledge context model | **Claude Haiku 5.5** (`claude-haiku-5-5`) | Writes the one-line context for each knowledge chunk at ingestion (offline). No query rewrite at request time: the agent model writes a self-contained question in the tool call (spec 013). A separate intent router is deferred until evals show it beats self-routing ([`reconciliation.md`](./reconciliation.md) Gap 3). | Rufus has a query-planning/classification layer |
 | Escalation model | **Claude Opus 5.5** (`claude-opus-5-5`) | Only on stuck turns (loop, step budget, repeated tool error) — bounded cost, higher success on the hard tail. Same tools + same confirmation gate, so no extra privilege. Not a second agent. | — |
-| Product search | **MongoDB query in v1; Typesense if evals need it** | Search problem, not RAG — need exact filters (price ≤ 50, in-stock). Vectors can't guarantee "under $50". The catalog is small, so the existing Mongo filters cover v1; Typesense (typo tolerance, relevance ranking) is added only if search evals fail. | — |
+| Product search | **SQL query in v1; Typesense if evals need it** | Search problem, not RAG — need exact filters (price ≤ 50, in-stock). Vectors can't guarantee "under $50". The catalog is small, so the existing database filters cover v1; Typesense (typo tolerance, relevance ranking) is added only if search evals fail. | — |
 | Knowledge retrieval | **Hybrid (vector + BM25)** | Policy text is keyword-heavy ("refund", "30 days"); pure vector misses exact terms, pure BM25 misses paraphrase. | Shopify: "hybrid retrieval — lexical + semantic" |
 | Chunking | **Structural (1 logical unit/chunk)** + Contextual Retrieval | Docs are pre-structured; fixed-size splits policies mid-sentence. | Undisclosed → data-driven + Anthropic Contextual Retrieval |
 | Reranking | **Voyage rerank-2.5** | Cheap precision bump; wrong policy answer = false promise. | Undisclosed → RAG research + proven by DeepEval `contextual_precision` |
 | Embeddings | **Voyage voyage-3.5** | Claude-native recommendation; strong + cheap. | — |
-| Vector store | **MongoDB Atlas Vector** | Reuse existing DB — one datastore, not a new Pinecone/Qdrant. | — |
+| Vector store | **pgvector** (+ Postgres full text) | Reuse the store's database — one datastore, not a new Pinecone/Qdrant (moved from Atlas Vector Search in spec 023). | — |
 | Short-term memory | **Checkpointer** | Multi-turn reference resolution. | standard agent practice |
 | Write safety | **`interrupt()` + checkout reuse** | Confirm irreversible / bulk / account / external actions; reversible cart edits auto-execute to avoid confirmation fatigue. No double checkouts: an open `PendingCheckout` for the same cart + address is reused, and the webhook is idempotent on the Stripe session id, so no double orders. | — |
 | Payment | **Payment-first: `PendingCheckout` + Stripe Checkout + webhook** | The same path as the site's `/checkout`, so UI and agent can't drift. The `PendingCheckout` (24h TTL) is the trackable pre-order; the `Order` exists only once Stripe confirms payment, so there are no abandoned unpaid orders; payment state comes only from the signed webhook, never the agent. | — |
 | Auth | **server-side token + per-tool authz** | LLM can be jailbroken; authz enforced in DB, never in prompt. Payment/login/password stay out of the agent. | — |
-| Tracing backbone | **OpenTelemetry** | Vendor-neutral `gen_ai.*` spans; correlates LLM + Mongo + HTTP in one trace; no lock-in. The agent creates its own model and tool spans; OpenLLMetry was tried and dropped (spec 017). | OTel GenAI semantic conventions |
+| Tracing backbone | **OpenTelemetry** | Vendor-neutral `gen_ai.*` spans; correlates LLM + database + HTTP in one trace; no lock-in. The agent creates its own model and tool spans; OpenLLMetry was tried and dropped (spec 017). | OTel GenAI semantic conventions |
 | Observability | **LangSmith** | LLM-native trajectory view + online evals; ingests OTLP. | — |
 | Evals | **DeepEval-TS + Vitest** | Named metrics (faithfulness, contextual precision/recall, tool-correctness) as CI gate. Beta — fallback LangSmith evals. | industry: LLM-judge evals (Shopify) |
 
@@ -237,7 +237,7 @@ Before payment, a checkout is a `PendingCheckout`, not an order: there are no un
 - **A separate intent router** — the agent model routes through native tool use; a Haiku router would add a hop and a misrouting failure, so it waits for evidence from evals ([`reconciliation.md`](./reconciliation.md) Gap 3).
 - **GraphRAG** — no entity graph to traverse in a flat FAQ/policy KB.
 - **HyDE / Self-RAG / CRAG** — extra latency for marginal gain once I have self-contained questions + hybrid + rerank; would revisit only if eval hallucination rate demanded it.
-- **Separate vector DB** — Atlas keeps it one datastore.
+- **Separate vector DB** — pgvector keeps it one datastore.
 - **LLM long-term memory for orders/profile** — that's authoritative structured data, accessed via tools.
 - **Fine-tuning** — knowledge stays in retrieval so policies update without retraining.
 
@@ -249,7 +249,7 @@ Before payment, a checkout is a `PendingCheckout`, not an order: there are no un
 2. "Single agent + tools, matching Shopify's published pattern — I rejected multi-agent as over-engineering."
 3. "I chose each RAG technique from my data's characteristics; it converges with Shopify's hybrid retrieval. Where industry is silent (reranking, chunking), I justified from research and let DeepEval be the judge."
 4. "Anything irreversible, bulk, account-changing, or external goes through an `interrupt()` confirmation; reversible cart edits don't, so users aren't nagged. The LLM proposes, the backend disposes."
-5. "Authoritative data stays in Mongo behind tools — never in LLM memory. Short-term memory is only for in-conversation reference resolution."
+5. "Authoritative data stays in the database behind tools — never in LLM memory. Short-term memory is only for in-conversation reference resolution."
 
 ---
 
